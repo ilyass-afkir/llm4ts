@@ -1,0 +1,61 @@
+name: training
+
+# Paths
+truck_data_dir_path: /mnt/nvme3/ilafkir/datasets/truck_data_split
+uea_data_dir_path: /mnt/nvme3/ilafkir/datasets/UEA
+
+save_results_dir_path: /mnt/nvme3/ilafkir/results/training
+save_results_inception: /mnt/nvme3/ilafkir/results/training/inception
+save_results_rocket: /mnt/nvme3/ilafkir/results/training/rocket
+save_results_resnet: /mnt/nvme3/ilafkir/results/training/resnet
+
+use_truck_data: false
+use_uea: true
+use_benchmarks: false
+
+
+# Device
+device: "cuda:0"
+
+# Task configs
+sequence_length: 100
+label: highway_label
+num_classes: 6
+num_channels: 39
+
+# Data Loader
+num_workers: 24
+batch_size: 32
+
+# Loss function
+label_smoothing: 0.05
+
+# Optimizer 
+learning_rate: 1e-4
+weight_decay: 0.01
+betas: [0.9, 0.999]
+eps: 1e-8
+
+# Learning Rate Scheduler
+warmup_ratio: 0.1
+alpha_f: 0.01
+
+# Training loop
+epochs: 100
+patience: 20
+max_grad_norm: 1.0
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

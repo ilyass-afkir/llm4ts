@@ -1,0 +1,42 @@
+name: llm_few
+task_name:  classification
+
+# Patching
+patch_length: 16
+patch_stride: 8
+
+# Encoder
+enc_channels: 256
+enc_depth: 3
+enc_reduced_size: 128 
+enc_kernel_size: 3
+enc_dropout: 0.1
+
+# Classification head
+num_cnn_blocks: 3
+cnn_channels: 128
+kernel_size: 3
+mlp_hidden: 1024
+pooling_type: avg
+use_batch_norm: True
+
+# Classification head
+dropout: 0
+activation: relu
+
+# LLM
+lora_config:
+  r: 8
+  lora_alpha: 32
+  target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+  lora_dropout: 0.1
+  bias: none
+
+trainable_llm_params: 
+  - lora
+        
+        

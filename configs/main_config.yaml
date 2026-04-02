@@ -1,0 +1,19 @@
+# configs/main_config.yaml
+defaults:
+  - _self_
+  - data_understanding: analysis
+  - data_preparation: preparation
+  - model: deep_range
+  - llm: Llama-3.2-1B 
+  - training: training
+
+run_flags:
+  data_understanding: true
+  data_preparation: false
+  run_training: false
+
+
+
+
+
+

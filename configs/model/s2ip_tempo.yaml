@@ -1,0 +1,44 @@
+name: s2ip_tempo
+task_name: classification
+
+# LLM
+trainable_llm_params: 
+  - norm
+lora_config: 
+  - None
+
+# Decomposition
+ff_hidden_dim: 1000
+moving_avg_kernel_size: 25
+moving_avg_stride: 1
+ff_dropout: 0.1
+
+# Semantic Space Aligned Prompting
+prompt_length: 1      
+top_k: 5                
+embedding_key: mean # mean, max, cls
+
+# Patch Embedding
+patch_length: 16
+patch_stride: 8
+patch_embedding_dropout: 0.1
+
+# Classification head
+num_cnn_blocks: 3
+cnn_channels: 128
+kernel_size: 3
+mlp_hidden: 1024
+pooling_type: avg
+use_batch_norm: True
+
+# Source embedding
+small_vocab_size: 1000
+
+# Classification head
+dropout: 0
+activation: relu
+
+
+
+
+

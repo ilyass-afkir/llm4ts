@@ -1,0 +1,75 @@
+name: preparation
+
+verified_data_path: /path/to/verified_truck_data
+highway_labels_path: /mnt/nvme3/ilafkir/datasets/truck_data/highway_labels
+weather_labels_path: /mnt/nvme3/ilafkir/datasets/truck_data/weather_labels
+
+save_labeled_path: /mnt/nvme3/ilafkir/datasets/labeled_truck_data
+save_windows_path: /mnt/nvme3/ilafkir/datasets/truck_data_windows
+save_data_split_path: /mnt/nvme3/ilafkir/datasets/truck_data_split
+save_reports_path: /mnt/nvme3/ilafkir/datasets/label_distributions
+
+file_extension: .parquet
+window_extension: .npy
+
+label_columns: 
+  - air_temperature_label
+  - surface_condition_label
+  - weather_label
+  - highway_label
+
+signals_to_drop:
+  weather_label:
+    - airtempinsd_cval_hvac
+    - airtempinsd_rq
+    - airtempoutsd_cval_cpc
+    - altitude_cval_ippc
+    - latitude_cval_ippc
+    - longitude_cval_ippc
+  
+  air_temperature_label:
+    - airtempinsd_cval_hvac
+    - airtempinsd_rq
+    - airtempoutsd_cval_cpc
+    - altitude_cval_ippc
+    - latitude_cval_ippc
+    - longitude_cval_ippc
+
+  surface_condition_label:
+    - airtempinsd_cval_hvac
+    - airtempinsd_rq
+    - airtempoutsd_cval_cpc
+    - altitude_cval_ippc
+    - latitude_cval_ippc
+    - longitude_cval_ippc
+
+  highway_label:
+    - altitude_cval_ippc
+    - latitude_cval_ippc
+    - longitude_cval_ippc
+    - vehspd_cval_cpc
+
+labels_to_drop:
+  highway_label:
+    - living_street
+    - motorway_link
+    - primary_link
+    - secondary_link
+    - service
+    - tertiary_link
+    - track
+    - trunk_link
+    - unclassified
+    - mini_roundabout
+ 
+window_sizes_sec:
+  - 100
+  - 500
+
+training_pct: 0.7      
+validation_pct: 0.15    
+test_pct: 0.15
+fewshot_pct: 0.1          
+    
+
+

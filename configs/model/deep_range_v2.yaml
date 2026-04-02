@@ -1,0 +1,32 @@
+name: deep_range_v2
+task_name: classification
+
+lora_config:
+  r: 8
+  lora_alpha: 32
+  target_modules: 
+    - q_proj
+    - k_proj
+    - v_proj
+  lora_dropout: 0.1 
+  bias: none 
+
+trainable_llm_params: 
+  - lora
+
+# Patch Embedding
+patch_length: 16
+patch_stride: 8
+patch_embedding_dropout: 0
+
+# Classification head
+dropout: 0
+activation: relu
+
+# Source embedding
+small_vocab_size: 2500
+
+# Reprograming Layer
+attention_dropout: 0.1
+
+

@@ -1,0 +1,9 @@
+name: highway_labeling
+verified_data_dir: /path/to/dir
+file_extension: .parquet
+labeled_data_dir: /path/to/dir
+osm_maps_dir: /path/to/dir
+processed_osm_maps_dir: /path/to/dir
+plots_dir: /path/to/dir
+trip_locations_file: /path/to/file
+

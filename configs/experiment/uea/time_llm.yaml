@@ -1,0 +1,45 @@
+# @package _global_
+# python llm-erange/main.py --multirun +experiment/uea=time_llm,one_fits_all,llm_few,s2ip_tempo
+
+run_flags:
+  data_understanding: false
+  data_preparation: false
+  run_training: true
+
+defaults:
+  - override /model: time_llm
+  - override /llm: Llama-3.2-1B 
+
+model:
+
+  task_description: "Classification of multivariate time series using the UEA benchmark datasets" 
+  prompt_max_lenght: 1000
+
+llm:
+  quantization: None
+
+training: 
+  save_results_dir_path: /mnt/nvme3/ilafkir/results/training/uea_normalized/final/time_llm
+  
+  use_truck_data: false
+  use_uea: true
+  use_benchmarks: false
+
+  # Task configs
+  label: UEA benchmark dataset
+
+  # Optimizer 
+  learning_rate: 1e-4
+  weight_decay: 0.01
+  betas: [0.9, 0.999]
+  eps: 1e-8
+
+  # Learning Rate Scheduler
+  warmup_ratio: 0.1
+  alpha_f: 0.01
+
+  # Training loop
+  epochs: 100
+  patience: 20
+  max_grad_norm: 1.0
+

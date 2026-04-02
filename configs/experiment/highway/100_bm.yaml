@@ -1,0 +1,27 @@
+# @package _global_
+# python llm-erange/main.py --multirun +experiment/highway=100_bm,500_bm
+
+run_flags:
+  data_understanding: false
+  data_preparation: false
+  run_training: true
+
+training: 
+  save_results_dir_path: /mnt/nvme3/ilafkir/results/training/deep_range/highway/100
+  save_results_inception: /mnt/nvme3/ilafkir/results/training/inception/highway/100
+  save_results_rocket: /mnt/nvme3/ilafkir/results/training/rocket/highway/100
+  save_results_resnet: /mnt/nvme3/ilafkir/results/training/resnet/highway/100
+
+  use_truck_data: false
+  use_uea: false
+  use_benchmark: true
+
+  sequence_length: 100
+  label: highway_label
+  num_classes: 6
+  num_channels: 39
+
+  num_workers: 24
+  batch_size: 256
+  epochs: 100
+

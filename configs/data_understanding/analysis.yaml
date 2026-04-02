@@ -1,0 +1,5 @@
+name: analysis
+verified_data_dir: /path/to/dir
+file_extension: .parquet
+results_dir: /path/to/dir
+

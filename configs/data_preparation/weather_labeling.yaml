@@ -1,0 +1,9 @@
+name: weather_labeling
+path: /Users/ILAFKIR/datasets/truck_data/validated_processed_trip_level
+file_extension: .parquet
+save_path: /Users/ILAFKIR/datasets/truck_data/labels/
+
+window_size_km: 1
+window_size_seconds: 60
+
+
