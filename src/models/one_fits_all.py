@@ -1,35 +1,68 @@
-"""
-One Fits All Model.
+"""One Fits All Model.
+
+This module implements the OneFitsAll architecture, a streamlined time-series
+classification model that feeds patch-embedded time-series directly into a
+frozen (or partially fine-tuned) LLM backbone without any reprogramming or
+prompt injection. It is a lightweight alternative to TimeLLM, relying solely
+on the LLM's representational capacity to classify time-series data.
+
+Example:
+    >>> model = OneFitsAll(cfg).to(cfg.training.device)
+    >>> x = torch.randn(8, cfg.training.num_channels, cfg.training.sequence_length)
+    >>> x = x.to(cfg.training.device)
+    >>> logits = model(x)
+    >>> print(logits.shape)
+    (8, num_classes)
+
+References:
+
+    .. admonition:: Paper
+
+        Zhou, T. et al.: Time series analysis by pretrained LM (2023)
+        Zhou, Tian; Niu, Peisong; Wang, Xue; Sun, Liang; Jin, Rong: One fits all: power general time series
+        analysis by pretrained LM, in: Proceedings of the 37th International Conference on Neural Information
+        Processing Systems, 2023
+
+    .. admonition:: Source Code
+
+        https://github.com/DAMO-DI-ML/NeurIPS2023-One-Fits-All/blob/main/Classification/src/models/gpt4ts.py
 """
 
-import sys
-from pathlib import Path
-sys.path.append(str(Path(__file__).resolve().parents[2]))
 import torch
-
-from torch import nn
 from omegaconf import DictConfig
-from hydra import initialize, compose
+from torch import nn
 
-from layers.time_series_embeddings import PatchBasedDataEmbedding
-from layers.classification_heads import ClassificationHeadLetsC, ClassificationHeadDeepRange
+from src.layers.classification_heads import ClassificationHeadDeepRange
+from src.layers.time_series_embeddings import PatchEmbedding
 from src.utils.load_llm import LLMLoader
 
 
 class OneFitsAll(nn.Module):
-    def __init__(self, cfg: DictConfig):
+    """Time-series classification model that feeds patches directly into an LLM.
+
+    OneFitsAll simplifies the TimeLLM pipeline by removing the reprogramming
+    and prompt embedding stages. Raw time-series patches are linearly projected
+    into the LLM hidden size and passed straight into the LLM backbone, whose
+    final hidden states are consumed by a classification head.
+
+    Attributes:
+        cfg (DictConfig): Full Hydra/OmegaConf configuration object. Expected
+            top-level keys are ``model``, ``llm``, and ``training``.
+    """
+
+    def __init__(self, cfg: DictConfig) -> None:
         super().__init__()
-        
+
         self.cfg = cfg
-        
+
         self.patch_length = self.cfg.model.patch_length
         self.patch_stride = self.cfg.model.patch_stride
         self.patch_embedding_dropout = self.cfg.model.patch_embedding_dropout
         self.sequence_length = self.cfg.training.sequence_length
         self.num_patches = (self.sequence_length - self.patch_length) // self.patch_stride + 2
         self.device = self.cfg.training.device
-        
-        self.patch_embedding  = PatchBasedDataEmbedding(
+
+        self.patch_embedding = PatchEmbedding(
             use_linear=True,
             embed_type=None,
             freq=None,
@@ -40,106 +73,60 @@ class OneFitsAll(nn.Module):
             patch_lenght=self.patch_length,
             patch_stride=self.patch_stride,
             dropout=self.cfg.model.patch_embedding_dropout,
-            num_channels=self.cfg.training.num_channels
+            num_channels=self.cfg.training.num_channels,
         )
 
         self.llm_loader = LLMLoader(cfg)
         self.llm, self.tokenizer = self.llm_loader.load_llm_and_tokenizer()
         self.llm = self.llm_loader.define_trainable_params(self.llm)
         _ = self.llm_loader.summarize_configuration(self.llm)
-       
-        #self.classification_head = ClassificationHeadLetsC(
-           # input_dim=self.cfg.llm.hidden_size ,
-            #num_classes=self.cfg.training.num_classes,
-            #num_cnn_blocks=self.cfg.model.num_cnn_blocks,
-           # cnn_channels=self.cfg.model.cnn_channels,
-            #kernel_size=self.cfg.model.kernel_size,
-            #mlp_hidden=self.cfg.model.mlp_hidden,
-           # dropout=self.cfg.model.dropout,
-           # pooling_type=self.cfg.model.pooling_type,
-            #use_batch_norm=self.cfg.model.use_batch_norm,
-        #)
 
         self.classification_head = ClassificationHeadDeepRange(
             llm_hidden_size=self.cfg.llm.hidden_size,
             num_patches=self.num_patches,
             num_classes=self.cfg.training.num_classes,
             dropout=self.cfg.model.dropout,
-            activation=self.cfg.model.activation
+            activation=self.cfg.model.activation,
         )
 
-    def classify(self, x):
+    def classify(self, x: torch.Tensor) -> torch.Tensor:
+        """Performs time-series classification through the LLM backbone.
+
+        Executes the following steps in order:
+
+        1. Embed time-series patches via :attr:`layers.patch_embedding`.
+        2. Pass the embedded patches directly into the LLM backbone.
+        3. Extract the final layer hidden states and apply
+           :attr:`classification_head`.
+
+        Args:
+            x (torch.Tensor): Input time-series tensor of shape
+                ``(batch_size, num_channels, sequence_length)``.
+
+        Returns:
+            torch.Tensor: Class logits of shape ``(batch_size, num_classes)``.
+        """
         x = self.patch_embedding(x)
         llm_output = self.llm(inputs_embeds=x).hidden_states[-1]
         logits = self.classification_head(llm_output)
         return logits
-    
-    def forward(self, x):
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Runs the forward pass for the configured task.
+
+        Currently supports ``"classification"`` as the only task. Dispatches
+        to :meth:`classify` and returns its output directly.
+
+        Args:
+            x (torch.Tensor): Input time-series tensor of shape
+                ``(batch_size, num_channels, sequence_length)``.
+
+        Returns:
+            torch.Tensor: Task-specific output tensor. For classification,
+                a logit matrix of shape ``(batch_size, num_classes)``.
+        """
         if self.cfg.model.task_name == "classification":
-            logits = self.classify(x) 
+            logits = self.classify(x)
             return logits
     
-if __name__ == "__main__":
-    import gc
-
-    torch.cuda.empty_cache()
-    gc.collect()
-    with initialize(version_base=None, config_path="../../configs"):
-        cfg = compose(config_name="main_config")
-
-    print("Loaded Hydra config successfully.")
-    print(cfg.model)
-
-    # Dummy batch
-    batch_size = 4
-    window_size = cfg.training.sequence_length
-    num_features = cfg.training.num_channels
-    num_classes = cfg.training.num_classes
-
-    x = torch.randn(batch_size, window_size, num_features).to(dtype=torch.bfloat16, device="cuda:0")
-    y = torch.randint(0, num_classes, (batch_size,)).to(dtype=torch.long, device="cuda:0")
-
-    # Model forward
-    model = OneFitsAll(cfg)
-    model.to("cuda:0", dtype=torch.bfloat16)
-    logits = model(x)
-
-    # Dummy loss
-    criterion = nn.CrossEntropyLoss()
-    loss = criterion(logits.float(), y)
-    
-    # Parameter counts
-    total_params = sum(p.numel() for p in model.parameters())
-    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    non_trainable = total_params - trainable_params
-
-    # Memory footprint (weights only)
-    param_mem_gb = sum(p.numel() * p.element_size() for p in model.parameters()) / (1024 ** 3)
-    grad_mem_gb = sum(p.numel() * p.element_size() for p in model.parameters() if p.requires_grad) / (1024 ** 3)
-    
-    print("\n📊 Model Parameter Summary")
-    print("-" * 60)     
-    print(f"Total parameters:      {total_params:,}")
-    print(f"Trainable parameters:  {trainable_params:,}")
-    print(f"Non-trainable:         {non_trainable:,}")
-    print(f"Parameter memory:      {param_mem_gb:.2f} GB (weights only)")
-    print(f"Trainable memory:      {grad_mem_gb:.2f} GB")
-    print("-" * 60)
-
-    # GPU usage if CUDA
-    if torch.cuda.is_available():
-        allocated = torch.cuda.memory_allocated() / 1e9
-        reserved = torch.cuda.memory_reserved() / 1e9
-        print(f"CUDA memory allocated: {allocated:.2f} GB")
-        print(f"CUDA memory reserved:  {reserved:.2f} GB")
-        print("-" * 60)
-
-    print(f"Input shape: {x.shape}")
-    print(f"Output shape: {logits.shape}")
-    print(f"Class labels: {y.tolist()}")
-    print(f"Loss: {loss.item():.4f}")
-
-    del model
-    torch.cuda.empty_cache()
-    gc.collect()
 

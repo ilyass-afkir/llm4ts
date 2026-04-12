@@ -1,65 +1,95 @@
-"""
-Description here.
-"""
-import sys
-from pathlib import Path
-sys.path.append(str(Path(__file__).resolve().parents[2]))
-import torch
-import gc
+"""TimeLLM Module.
+ 
+This module defines the TimeLLM architecture, a time-series foundation model
+that reprograms patch-level time-series embeddings into the input space of a
+frozen (or partially fine-tuned) Large Language Model (LLM) for downstream
+classification tasks.
+ 
+Example:
+    >>> model = TimeLLM(cfg).to(cfg.training.device)
+    >>> x = torch.randn(8, cfg.training.num_channels, cfg.training.sequence_length)
+    >>> x = x.to(cfg.training.device)
+    >>> logits = model(x)
+    >>> print(logits.shape) 
+    (8, num_classes)
 
+References:
+
+    .. admonition:: Paper
+
+        Jin, Ming; Wang, Shiyu; Ma, Lintao; Chu, Zhixuan; Zhang, James Y.; Shi, Xiaoming;
+        Chen, Pin-Yu; Liang, Yuxuan; Li, Yuan-Fang; Pan, Shirui; Wen, Qingsong:
+        Time-LLM: Time Series Forecasting by Reprogramming Large Language Models,
+        in: The Twelfth International Conference on Learning Representations, 2024
+
+    .. admonition:: Source Code
+
+        https://github.com/KimMeen/Time-LLM/blob/main/models/TimeLLM.py
+
+"""
+
+import torch
 from torch import nn
 from omegaconf import DictConfig
-from hydra import initialize, compose
-import torch
-from torch import nn    
-from einops import rearrange
-from omegaconf import DictConfig
 
-from layers.time_series_embeddings import PatchBasedDataEmbedding
+from src.layers.time_series_embeddings import PatchEmbedding
 from src.layers.prompt_embedding import PromptEmbedding
-from layers.classification_heads import ClassificationHeadLetsC, ClassificationHeadDeepRange
+from src.layers.classification_heads import ClassificationHeadDeepRange
 from src.layers.reprogramming_layer import ReprogrammingLayer
-from layers.token_prototype_embedding import SourceEmbedding
+from src.layers.token_prototype_embedding import TokenPrototypeEmbedding
 from src.utils.load_llm import LLMLoader
 
 
 class TimeLLM(nn.Module):
-    def __init__(self, cfg: DictConfig):
+    """Time-series classification model built on top of a frozen LLM backbone.
+ 
+    TimeLLM reprograms patch-level time-series representations into the token
+    embedding space of a pre-trained LLM using a cross-attention reprogramming
+    layer. A learnable text prompt is prepended to the reprogrammed sequence
+    before being fed into the LLM, whose final hidden states are consumed by a
+    classification head.
+ 
+    Attributes:
+        cfg (DictConfig): Hydra configuration object. Expected
+            top-level keys are ``model``, ``llm``, and ``training``.
+    """
+ 
+    def __init__(self, cfg: DictConfig) -> None:
         super().__init__()
-        
+
         self.cfg = cfg
-        
+
         self.patch_length = self.cfg.model.patch_length
         self.patch_stride = self.cfg.model.patch_stride
         self.sequence_lenght = self.cfg.training.sequence_length
         self.num_patches = (self.sequence_lenght - self.patch_length) // self.patch_stride + 2
-
+ 
         self.llm_loader = LLMLoader(cfg)
         self.llm, self.tokenizer = self.llm_loader.load_llm_and_tokenizer()
         self.llm = self.llm_loader.define_trainable_params(self.llm)
         _ = self.llm_loader.summarize_configuration(self.llm)
-
-        self.patch_embedding = PatchBasedDataEmbedding(
+ 
+        self.patch_embedding = PatchEmbedding(
             use_linear=False,
             embed_type=None,
             freq=None,
             use_token=True,
             use_positional=False,
             use_temporal=False,
-            llm_hidden_size= self.cfg.llm.hidden_size,
+            llm_hidden_size=self.cfg.llm.hidden_size,
             patch_lenght=self.patch_length,
             patch_stride=self.patch_stride,
             dropout=self.cfg.model.patch_embedding_dropout,
-            num_channels=self.cfg.training.num_channels
+            num_channels=self.cfg.training.num_channels,
         )
-        
+ 
         self.word_embedding = self.llm.get_input_embeddings().weight
-        self.source_embedding = SourceEmbedding(
+        self.token_prototype_embedding = TokenPrototypeEmbedding(
             vocab_size=self.cfg.llm.vocab_size,
             small_vocab_size=self.cfg.model.small_vocab_size,
-            word_embedding=self.word_embedding
+            word_embedding=self.word_embedding,
         )
-
+ 
         self.prompt_embedding = PromptEmbedding(
             llm=self.llm,
             tokenizer=self.tokenizer,
@@ -67,103 +97,79 @@ class TimeLLM(nn.Module):
             prompt_max_lenght=self.cfg.model.prompt_max_lenght,
             label=self.cfg.training.label,
             device=self.cfg.training.device,
-            num_classes=self.cfg.training.num_classes
+            num_classes=self.cfg.training.num_classes,
         )
-        
-        #self.classification_head = ClassificationHeadLetsC(
-            #input_dim=self.cfg.llm.hidden_size ,
-           # num_classes=self.cfg.training.num_classes,
-            #num_cnn_blocks=self.cfg.model.num_cnn_blocks,
-           # cnn_channels=self.cfg.model.cnn_channels,
-           # kernel_size=self.cfg.model.kernel_size,
-            #mlp_hidden=self.cfg.model.mlp_hidden,
-            #dropout=self.cfg.model.dropout,
-            #pooling_type=self.cfg.model.pooling_type,
-           # use_batch_norm=self.cfg.model.use_batch_norm,
-       # )
+ 
         self.classification_head = ClassificationHeadDeepRange(
             llm_hidden_size=self.cfg.llm.hidden_size,
             num_patches=self.num_patches,
             num_classes=self.cfg.training.num_classes,
             dropout=self.cfg.model.dropout,
-            activation=self.cfg.model.activation
+            activation=self.cfg.model.activation,
         )
-        
-        # Reprogramming layer
+ 
         self.reprogramming_layer = ReprogrammingLayer(
-            llm_hidden_size=self.cfg.llm.hidden_size, 
+            llm_hidden_size=self.cfg.llm.hidden_size,
             num_attention_heads=self.cfg.llm.num_attention_heads,
-            attention_dropout=self.cfg.model.attention_dropout
+            attention_dropout=self.cfg.model.attention_dropout,
         )
-
-    def forward(self, x):
+ 
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Runs the forward pass for the configured task.
+ 
+        Currently supports ``"classification"`` as the only task. Dispatches
+        to :meth:`classify` and returns its output directly.
+ 
+        Args:
+            x (torch.Tensor): Input time-series tensor of shape
+                ``(batch_size, num_channels, sequence_length)``.
+ 
+        Returns:
+            torch.Tensor: Task-specific output tensor. For classification,
+                a logit matrix of shape ``(batch_size, num_classes)``.
+        """
         if self.cfg.model.task_name == "classification":
-            logits = self.classify(x) 
+            logits = self.classify(x)
             return logits
-     
-    def classify(self, x):
-
-        # Embedding
+ 
+    def classify(self, x: torch.Tensor) -> torch.Tensor:
+        """Performs time-series classification through the full LLM pipeline.
+ 
+        Executes the following steps in order:
+ 
+        1. Embed the task prompt via :attr:`layers.prompt_embedding`.
+        2. Embed time-series patches via :attr:`layers.patch_embedding`.
+        3. Compute token prototype embeddings via :attr:`layers.token_prototype_embedding`.
+        4. Reprogram patch embeddings into the LLM token space via
+           :attr:`layers.reprogramming_layer`.
+        5. Prepend the prompt embedding and pass the combined sequence through
+           the LLM backbone.
+        6. Slice out the patch-region hidden states and apply
+           :attr:`layers.classification_head`.
+ 
+        The prompt embedding tensor is moved to CPU and deleted after the LLM
+        forward pass to conserve GPU memory.
+ 
+        Args:
+            x (torch.Tensor): Input time-series tensor of shape
+                ``(batch_size, num_channels, sequence_length)``.
+ 
+        Returns:
+            torch.Tensor: Class logits of shape ``(batch_size, num_classes)``.
+        """
         prompt_embedding = self.prompt_embedding(x)
         patch_embedding = self.patch_embedding(x)
-        source_embedding = self.source_embedding()
-        reprogrammed_embedding = self.reprogramming_layer(patch_embedding, source_embedding, source_embedding)
+        token_prototype_embedding = self.token_prototype_embedding()
 
+        reprogrammed_embedding = self.reprogramming_layer(
+            patch_embedding, token_prototype_embedding, token_prototype_embedding
+        )
+ 
         llm_input = torch.cat([prompt_embedding, reprogrammed_embedding], dim=1)
         llm_output = self.llm(inputs_embeds=llm_input).hidden_states[-1]
         llm_output = llm_output[:, prompt_embedding.shape[1]:, :]
-        assert llm_output.shape == reprogrammed_embedding.shape
-
-        logits = self.classification_head(llm_output)
-
-        prompt_embedding.to("cpu")
-        del prompt_embedding
-        torch.cuda.empty_cache()
-        gc.collect()
-   
-        return logits
-    
  
-if __name__ == "__main__":
-    with initialize(version_base=None, config_path="../../configs"):
-        cfg = compose(config_name="main_config")  # or your actual YAML name, e.g. "train.yaml"
-
-    print("Loaded Hydra config successfully.")
-    print(cfg.model)
-
-    # Dummy batch
-    batch_size = 4
-    window_size = cfg.training.sequence_length
-    num_features = cfg.training.num_channels
-    num_classes = cfg.training.num_classes
-
-    x = torch.randn(batch_size, window_size, num_features).to(dtype=torch.bfloat16, device="cuda:0")
-    y = torch.randint(0, num_classes, (batch_size,)).to(dtype=torch.long, device="cuda:0")
-
-    # model forward
-    model = TimeLLM(cfg)
-    model.to("cuda:0", dtype=torch.bfloat16)
-    logits = model(x)
-
-    # dummy loss
-    criterion = nn.CrossEntropyLoss()
-    loss = criterion(logits.float(), y)
-    
-    total_params = sum(p.numel() for p in model.parameters())
-    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-
-    print("\n📊 Model Parameter Summary")
-    print("-" * 60)     
-    print(f"Total parameters:      {total_params:,}")
-    print(f"Trainable parameters:  {trainable_params:,}")
-    print(f"Non-trainable:         {total_params - trainable_params:,}")
-    print("-" * 60)
-
-    print(f"\nInput shape: {x.shape}")
-    print(f"Output shape: {logits.shape}")
-    print(f"Class labels: {y.tolist()}")
-    print(f"Loss: {loss.item():.4f}")
-    print(f"\nInput shape: {x.shape}")
-    print(f"Output (logits) shape: {logits.shape}")
-    print(f"Class labels: {y.tolist()}")
-    print(f"Loss: {loss.item():.4f}")
+        assert llm_output.shape == reprogrammed_embedding.shape
+ 
+        logits = self.classification_head(llm_output)
+        return logits

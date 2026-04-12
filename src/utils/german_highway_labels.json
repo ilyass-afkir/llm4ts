@@ -1,0 +1,18 @@
+{
+  "living_street": "Spielstraße / verkehrsberuhigte Wohnstraße",
+  "motorway": "Autobahn",
+  "motorway_link": "Autobahn-Zufahrt/-Abfahrt",
+  "primary": "Bundesstraße",
+  "primary_link": "Bundesstraße-Zufahrt/-Abfahrt",
+  "residential": "Wohnstraße",
+  "secondary": "Landesstraße",
+  "secondary_link": "Landesstraße-Zufahrt/-Abfahrt",
+  "service": "Parkplätze, Tankstellen, Konzernwege", 
+  "tertiary": "Kreisstraße",
+  "tertiary_link": "Kreisstraße-Zufahrt/-Abfahrt",
+  "track": "Forst- oder landwirtschaftlicher Weg",
+  "trunk": "Schnellstraße",
+  "trunk_link": "Schnellstraße-Zufahrt/-Abfahrt",
+  "unclassified": "Gewerbestraße / Verbindungsstraße zwischen kleinen Ortschaften / Nebenstraße ohne Wohnfunktion"
+}
+

@@ -1,23 +1,27 @@
-"""
-Clean, Modern PyTorch Trainer with Beautiful Plots
-Perfect for classification tasks
-Uses OmegaConf/Hydra configs
+"""Training module for neural network model training and evaluation.
+
+This module provides a comprehensive Trainer class for training PyTorch neural network
+models.
+
+Example: 
+    >>> model = torch.nn.Linear(10, 2)
+    >>> trainer = Trainer(cfg, model, train_loader, val_loader, save_dir)
+    >>> trained_model, total_time = trainer.fit()
 """
 
 import logging
 import time
 import json
 from pathlib import Path
+import math
+
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from omegaconf import DictConfig
 from tqdm import tqdm
 import matplotlib.pyplot as plt
-import seaborn as sns
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
-import math
-import gc
 from matplotlib import font_manager as fm
 
 logger = logging.getLogger(__name__)
@@ -27,6 +31,22 @@ logging.basicConfig(
 )
 
 class Trainer:
+    """A trainer class for training and evaluating PyTorch neural network models.
+    
+    This class handles the complete training pipeline including optimizer setup,
+    learning rate scheduling, validation, checkpointing, and visualization of
+    training metrics.
+    
+    Attributes:
+        cfg (DictConfig): Hydra configuration object. Expected keys are ``device``, 
+            ``learning_rate``, ``weight_decay``, ``betas``, ``epochs``, ``label_smoothing``, 
+            ``max_grad_norm``, ``warmup_ratio``, ``alpha_f``, ``restart_interval``, ``patience``.
+        model (nn.Module): The neural network model to train.
+        train_loader (DataLoader): DataLoader for training data.
+        val_loader (DataLoader | None): DataLoader for validation data.
+        save_results_dir_path (Path): Directory path for saving results and checkpoints.
+    """
+    
     def __init__(
         self,
         cfg: DictConfig,
@@ -34,9 +54,9 @@ class Trainer:
         train_loader: DataLoader,
         val_loader: DataLoader | None,
         save_dir: Path
-    ):
+    ) -> None:
         self.cfg = cfg
-        
+
         self.device = self.cfg.training.device
         self.model = model.to(device=self.device, dtype=torch.bfloat16)
         self.train_loader = train_loader
@@ -58,9 +78,9 @@ class Trainer:
         )
         
         # Cosine Annealing with Warmup Scheduler
-        #self.scheduler = self._setup_cosine_scheduler()
-        #self.scheduler = self._setup_cosine_scheduler_restart()
-        self.scheduler = self._setup_cosine_scheduler_multi_restart()
+        #self.scheduler = self.setup_cosine_scheduler()
+        #self.scheduler = self.setup_cosine_scheduler_restart()
+        self.scheduler = self.setup_cosine_scheduler_multi_restart()
         
         # Tracking
         self.history = {
@@ -79,8 +99,20 @@ class Trainer:
         self.patience_counter = 0
         self.global_step = 0
         
-    def _setup_cosine_scheduler(self, alpha_f: float = 0.1):
-        """Setup cosine annealing scheduler with warmup and minimum LR fraction alpha_f"""
+    def setup_cosine_scheduler(self, alpha_f: float = 0.1) -> torch.optim.lr_scheduler.LambdaLR:
+        """Setup cosine annealing scheduler with linear warmup.
+        
+        Implements a learning rate schedule that:
+        1. Linearly increases LR from 0 to initial_lr during warmup
+        2. Decays LR using cosine annealing to alpha_f * initial_lr after warmup
+        
+        Args:
+            alpha_f (float, optional): Minimum learning rate as a fraction of initial LR.
+                Defaults to 0.1. Can be overridden by cfg.training.alpha_f.
+        
+        Returns:
+            torch.optim.lr_scheduler.LambdaLR: Learning rate scheduler object.
+        """
         total_steps = len(self.train_loader) * self.cfg.training.epochs
         warmup_steps = int(total_steps * self.cfg.training.warmup_ratio)
         alpha_f = self.cfg.training.alpha_f
@@ -96,8 +128,17 @@ class Trainer:
         
         return torch.optim.lr_scheduler.LambdaLR(self.optimizer, lr_lambda)
     
-    def _setup_cosine_scheduler_multi_restart(self):
-        """Cosine annealing with warm restarts - define ONE cycle, repeat it"""
+    def setup_cosine_scheduler_multi_restart(self) -> torch.optim.lr_scheduler.LambdaLR:
+        """Setup cosine annealing scheduler with multiple warm restarts.
+        
+        Implements a learning rate schedule with periodic restarts:
+        - The schedule repeats itself every restart_interval epochs
+        - Each cycle includes warmup followed by cosine decay
+        - This allows the optimizer to escape local minima multiple times
+        
+        Returns:
+            torch.optim.lr_scheduler.LambdaLR: Learning rate scheduler with restarts.
+        """
         total_steps = len(self.train_loader) * self.cfg.training.epochs
         restart_interval = self.cfg.training.restart_interval
         alpha_f = self.cfg.training.alpha_f
@@ -126,7 +167,15 @@ class Trainer:
         return torch.optim.lr_scheduler.LambdaLR(self.optimizer, lr_lambda)
     
 
-    def _setup_cosine_scheduler_restart(self):
+    def setup_cosine_scheduler_restart(self) -> torch.optim.lr_scheduler.CosineAnnealingWarmRestarts:
+        """Setup cosine annealing with warm restarts using PyTorch's built-in scheduler.
+        
+        Uses torch.optim.lr_scheduler.CosineAnnealingWarmRestarts for periodic
+        learning rate restarts. The restart interval and multiplier are configurable.
+        
+        Returns:
+            torch.optim.lr_scheduler.CosineAnnealingWarmRestarts: PyTorch scheduler object.
+        """
         steps_per_epoch = len(self.train_loader)
         alpha_f = self.cfg.training.alpha_f
         
@@ -149,6 +198,15 @@ class Trainer:
         return scheduler
     
     def train_epoch(self) -> float:
+        """Execute one training epoch with gradient updates.
+        
+        Iterates through the training DataLoader, computes loss, performs
+        backpropagation, applies gradient clipping, and updates the model weights.
+        Learning rate is updated at each step via the scheduler.
+        
+        Returns:
+            float: Average training loss across all batches in the epoch.
+        """
         self.model.train()
         total_loss = 0
         
@@ -184,8 +242,20 @@ class Trainer:
         return total_loss / len(self.train_loader)
     
     @torch.no_grad()
-    def validate(self):
-        """Validate the model and compute metrics"""
+    def validate(self) -> dict:
+        """Evaluate the model on the validation dataset.
+        
+        Computes forward passes without gradient computation and calculates
+        various metrics including loss, accuracy, precision, recall, and F1-score.
+        
+        Returns:
+            dict: Dictionary containing validation metrics with keys:
+                - 'loss': Average validation loss (float)
+                - 'accuracy': Classification accuracy (float)
+                - 'precision': Macro-averaged precision (float)
+                - 'recall': Macro-averaged recall (float)
+                - 'f1': Macro-averaged F1-score (float)
+        """
         self.model.eval()
         total_loss = 0
         all_preds = []
@@ -225,14 +295,21 @@ class Trainer:
         
         return metrics
     
-    def save_checkpoint(self, epoch: int, is_best: bool = False):
-        """
-        Save model checkpoint following best practices.
+    def save_checkpoint(self, epoch: int, is_best: bool = False) -> None:
+        """Save model checkpoint to disk.
         
-        Best model: lightweight, only what's needed for inference
-        Full checkpoint: everything needed to resume training
-        """
+        Saves the best model state dictionary (for inference) when is_best=True.
+        The checkpoint includes the model state dict and metadata about the epoch
+        and validation metrics.
         
+        Args:
+            epoch (int): Current epoch number for metadata.
+            is_best (bool, optional): Whether this is the best model so far.
+                If True, saves to 'best_model.pt'. Defaults to False.
+        
+        Returns:
+            None
+        """
         # Always save full checkpoint (for resuming training)
         full_checkpoint = {
             'epoch': epoch,
@@ -259,7 +336,19 @@ class Trainer:
             torch.save(best_checkpoint, best_path)
             logger.info(f'Saved best model (F1: {self.best_val_f1:.4f})')
 
-    def plot_training_curves(self):
+    def plot_training_curves(self) -> None:
+        """Generate and save training visualization plots.
+        
+        Creates two figures:
+        1. Loss and Learning Rate (2x1 subplots) with training/validation loss and LR
+        2. Validation Metrics (2x2 subplots) with accuracy, F1-score, precision, recall
+        
+        Plots are saved as both PNG (300 dpi) and PDF formats. Includes custom font
+        loading and professional styling.
+        
+        Returns:
+            None
+        """
         
         # Load custom font
         font_path_normal = "llm-erange/src/utils/times.ttf"
@@ -450,14 +539,32 @@ class Trainer:
         plt.savefig(plot_path_pdf_2, bbox_inches='tight')
         plt.close(fig2)
 
-    def _log_training_config(self):
+    def log_training_config(self) -> None:
+        """Log training configuration at the start of training.
+        
+        Outputs device, learning rate, and number of epochs to the logger.
+        
+        Returns:
+            None
+        """
         logger.info("Starting Training")
         logger.info(f"Device: {self.device}")
         logger.info(f"LR: {self.cfg.training.learning_rate}")
         logger.info(f"Epochs: {self.cfg.training.epochs}")
 
-    def fit(self):
-        self._log_training_config()
+    def fit(self) -> tuple[nn.Module, float]:
+        """Execute the complete training loop with validation and early stopping.
+        
+        Trains the model for the specified number of epochs, validating after each
+        epoch. Implements early stopping based on F1-score improvement. Saves the
+        best model and generates training visualizations at the end.
+        
+        Returns:
+            tuple[nn.Module, float]: A tuple containing:
+                - Trained model (nn.Module): The best model loaded from checkpoint
+                - Total training time (float): Total training time in minutes
+        """
+        self.log_training_config()
         
         start_time = time.time()
         

@@ -1,5 +1,4 @@
 # @package _global_
-# python llm-erange/main.py --multirun +experiment/highway=100_bm,500_bm
 
 run_flags:
   data_understanding: false
@@ -7,10 +6,10 @@ run_flags:
   run_training: true
 
 training: 
-  save_results_dir_path: /mnt/nvme3/ilafkir/results/training/deep_range/highway/100
-  save_results_inception: /mnt/nvme3/ilafkir/results/training/inception/highway/100
-  save_results_rocket: /mnt/nvme3/ilafkir/results/training/rocket/highway/100
-  save_results_resnet: /mnt/nvme3/ilafkir/results/training/resnet/highway/100
+  save_results_dir_path:  path/to/results/training/deep_range/highway/100
+  save_results_inception:  path/to/results/training/inception/highway/100
+  save_results_rocket:  path/to/results/training/rocket/highway/100
+  save_results_resnet:  path/to/results/training/resnet/highway/100
 
   use_truck_data: false
   use_uea: false

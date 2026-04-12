@@ -1,5 +1,4 @@
 # @package _global_
-# python llm-erange/main.py --multirun +experiment/weather=100_1B,100_8B,100_bm,500_1B,500_bm,500_8B
 
 run_flags:
   data_understanding: false

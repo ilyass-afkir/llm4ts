@@ -27,16 +27,26 @@ Attributes:
     WEATHER_LABELING_SIGNALS (list[str]): Signal columns used for weather labeling.
     AIR_TEMPERATURE_LABELS (list[str]): Ordered list of air temperature label strings.
     WEATHER_LABELS (list[str]): Ordered list of weather condition label strings.
-    METEOSTAT_CODES (dict[int, str]): Mapping of Meteostat integer codes to descriptions.
+    METEOSTAT_CODES (dict[int, str]): 
+        Mapping of Meteostat integer codes to descriptions. 
+        Reference: https://dev.meteostat.net/formats.
     METEOSTAT_TO_WEATHER (dict[int, str]): Mapping of Meteostat codes to weather labels.
     HIGHWAY_LABELING_SIGNALS (list[str]): Signal columns used for highway labeling.
-    HIGHWAY_LABELS (list[str]): Ordered list of OSM highway label strings.
-    TRUCK_SPEED_RANGES (dict[str, tuple[int, int]]): Speed ranges (min, max) per highway type.
+    HIGHWAY_LABELS (list[str]): 
+        Ordered list of OSM highway label strings.
+        Reference: https://wiki.openstreetmap.org/wiki/Key:highway.
+    TRUCK_SPEED_RANGES (dict[str, tuple[int, int]]): 
+        Speed ranges (min, max) per highway type.
+        Reference: https://dhl-freight-connections.com/en/business/truck-speed-limits-europe/.
     HIGHWAY_PRIORITY (dict[str, int]): Priority ranking of OSM highway types.
     COUNTRY_CODE_TO_OSM_MAP (dict[str, str]): Mapping of ISO country codes to OSM PBF filenames.
-    CRS_CODES (dict[str, str]): EPSG CRS codes per country and multi-country key.
-    UEA (dict[str, dict[str, int]]): Per-dataset configuration for UEA archive datasets.
-"""
+    CRS_CODES (dict[str, str]): 
+        EPSG CRS codes per country and multi-country key. 
+        Reference: https://epsg.io/.
+    UEA (dict[str, dict[str, int]]): 
+        Per-dataset configuration for UEA archive datasets.
+        Reference: https://arxiv.org/abs/1811.00075.
+    """
 
 WEATHER_COLUMNS = ["air_temperature_label", "surface_condition_label", "weather_label"]
 

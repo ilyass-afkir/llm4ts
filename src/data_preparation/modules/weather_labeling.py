@@ -1,11 +1,19 @@
-"""
-Module for truck trip data processing.
+"""Electric Truck Weather Labeling Module.
+
+This module segments verified electric truck trip datasets into time or
+distance windows, fetches hourly weather observations from Meteostat for
+each window, classifies weather conditions and air temperatures using
+meteorological thresholds, and merges the resulting labels back into the
+original trip DataFrames.
+
+Example:
+    >>> labeler = TruckDataWeatherLabeler(cfg)
+    >>> labeler.run()
 """
 
 import logging
 import time
 from pathlib import Path
-from typing import List, Tuple
 import json
 
 import numpy as np
@@ -22,31 +30,91 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s"
 )
 
- 
+
 class TruckDataWeatherLabeler: 
+    """Labels electric truck trip data with weather and air temperature conditions.
+
+    Segments verified trip files into time or distance windows, fetches
+    hourly weather data from Meteostat for each window, classifies weather
+    conditions using meteorological thresholds, and merges the labels back
+    into the original trip DataFrame.
+
+    Attributes:
+        cfg (DictConfig): Hydra configuration object.  Must contain a ``data_preparation`` 
+            sub-config with the fields``verified_data_dir``, ``file_extension``, ``labeled_data_dir``,
+            ``results_dir``, ``window_size_km``, and ``window_size_seconds``.
+        verified_data_dir (Path): Directory containing verified parquet trip files.
+        file_extension (str): File suffix used when globbing trip files (e.g. ``'.parquet'``).
+        labeled_data_dir (Path): Directory where labeled parquet files are written.
+        results_dir (Path): Directory where label distribution JSON files are saved.
+        window_size_km (float): Window size in kilometres for distance-based windowing.
+        window_size_seconds (int): Window size in seconds for time-based windowing.
+        weather_labeling_signals (list[str]): Signal columns used for weather labeling.
+        weather_codes (dict[int, str]): Mapping from Meteostat condition codes to weather labels.
+    """
+    
     def __init__(self, cfg: DictConfig):
-        self.data_path = Path(cfg.data.paths.validated_truck_data)
-        self.file_extension = cfg.data.paths.file_extension
-        
-        self.save_path = Path(cfg.data.paths.weather_labels)
-        self.save_path.mkdir(parents=True, exist_ok=True)
-        
-        self.results_path =  Path("llm-erange/results/weather_checks")
-        self.results_path.mkdir(parents=True, exist_ok=True)
-                                                                        
-        self.signals = const.WEATHER_LABELING_SIGNALS
-        self.window_size_km = cfg.data.weather_labeling_configs.window_size_km
-        self.window_size_seconds = cfg.data.weather_labeling_configs.window_size_seconds
+        self.cfg = cfg
 
+        self.verified_data_dir = Path(self.cfg.data_preparation.verified_data_dir) 
+        self.file_extension = self.cfg.data_preparation.file_extension
+        self.labeled_data_dir = Path(self.cfg.data_preparation.labeled_data_dir)
+        self.results_dir =  Path(self.cfg.data_preparation.results_dir)
+        self.window_size_km = self.cfg.data_preparation.window_size_km
+        self.window_size_seconds = self.cfg.data_preparation.window_size_seconds
+
+        self.weather_labeling_signals = const.WEATHER_LABELING_SIGNALS
         self.weather_codes = const.METEOSTAT_TO_WEATHER
-        self.surface_codes  =const.METEOSTAT_TO_SURFACE
 
-    def _get_datasets(self) -> Tuple[List[Path], List[str]]:
-        paths = sorted(self.data_path.glob(f"*{self.file_extension}"))
+        self.setup_dirs()
+    
+    def setup_dirs(self) -> None:
+        """Creates required output directories if they do not already exist."""
+        for path in [self.results_dir, self.labeled_data_dir]:
+            path.mkdir(parents=True, exist_ok=True)
+
+    def get_datasets(self) -> tuple[list[Path], list[str]]:
+        """Gets all trip files in the verified data directory.
+
+        Returns:
+            tuple[list[Path], list[str]]: A tuple of ``(paths, filenames)`` where
+                ``paths`` is a sorted list of :class:`pathlib.Path` objects
+                matching ``file_extension``, and ``filenames`` contains the
+                corresponding stems (no extension).
+        """
+        paths = sorted(self.verified_data_dir.glob(f"*{self.file_extension}"))
         filenames = [f.stem for f in paths]
         return paths, filenames
     
-    def _create_windows(self, df: pd.DataFrame, use_distance: bool = False, use_time: bool = True) -> pd.DataFrame:
+    def create_windows(self, 
+        df: pd.DataFrame, 
+        use_distance: bool = False, 
+        use_time: bool = True
+    ) -> pd.DataFrame:
+        """Segments a trip DataFrame into fixed-size windows by distance or time.
+
+        Assigns a ``window_id`` to each row and marks the first, middle, and
+        last row of every window with boolean flags.
+
+        Args:
+            df (pd.DataFrame): Trip DataFrame to segment. Must contain
+                ``hirestotalvehdist_cval_icuc`` if ``use_distance=True``.
+            use_distance (bool, optional): If ``True``, windows are defined by
+                ``window_size_km`` driven distance. Defaults to ``False``.
+            use_time (bool, optional): If ``True``, windows are defined by
+                ``window_size_seconds`` row count. Defaults to ``True``.
+
+        Returns:
+            pd.DataFrame: Input DataFrame with four additional columns:
+                * ``window_id`` -- integer window index per row.
+                * ``is_first_row`` -- ``True`` for the first row of each window.
+                * ``is_middle_row`` -- ``True`` for the middle row of each window.
+                * ``is_last_row`` -- ``True`` for the last row of each window.
+
+        Raises:
+            ValueError: If both or neither of ``use_distance`` and ``use_time``
+                are ``True``.
+        """
         df["is_first_row"] = False
         df["is_middle_row"] = False
         df["is_last_row"] = False
@@ -70,36 +138,71 @@ class TruckDataWeatherLabeler:
 
         return df
     
-    @staticmethod # dwpt fallback (10.1175/BAMS-86-2-225, 10.1175/1520-0450(1996)035<0601:IMFAOS>2.0.CO;2)
-    def _dew_point(temp, rhum):
+    @staticmethod
+    def dew_point(temp: float, rhum: float) -> float:
+        """Computes the dew point temperature from air temperature and relative humidity.
+
+        Uses the Magnus formula as a fallback when dew point is not directly
+        available from the weather station.
+
+        Args:
+            temp (float): Air temperature in degrees Celsius.
+            rhum (float): Relative humidity as a percentage (0–100).
+
+        Returns:
+            float: Dew point temperature in degrees Celsius.
+
+        References:
+            .. admonition:: Papers
+
+                Lawrence, M. G., 2005: The Relationship between Relative Humidity and the Dewpoint 
+                Temperature in Moist Air: A Simple Conversion and Applications. 
+                Bull. Amer. Meteor. Soc., 86, 225–234, https://doi.org/10.1175/BAMS-86-2-225. 
+
+                Alduchov, O. A., and R. E. Eskridge, 1996: Improved Magnus Form Approximation of 
+                Saturation Vapor Pressure. J. Appl. Meteor. Climatol., 35, 601–609, 
+                https://journals.ametsoc.org/view/journals/apme/35/4/1520-0450_1996_035_0601_imfaos_2_0_co_2.xml. 
+        """
         a, b = 17.27, 237.7
         alpha = (a * temp) / (b + temp) + np.log(rhum / 100.0)
         return (b * alpha) / (a - alpha)
-    
-    def _fetch_hourly_weather_data(self, df: pd.DataFrame, time_delta_hour: int = 5) -> pd.DataFrame:
-        """  
-        Parameters:
-            latitude (float): Latitude of the location in decimal degrees.
-            longitude (float): Longitude of the location in decimal degrees.
-            altitude (float): Altitude of the location in meters.
-            timestamp (datetime-like): The datetime for which to fetch weather data.
+  
+    def fetch_hourly_weather_data(self, df: pd.DataFrame, time_delta_hour: int = 5) -> pd.DataFrame:
+        """Fetches hourly weather data from Meteostat for each window in the trip.
+
+        For each window, attempts to fetch weather data using the middle, first,
+        or last row GPS point as a fallback chain. If all attempts fail, a row
+        of ``NaN`` values is inserted. Missing temperature values are filled
+        from the onboard sensor (``airtempoutsd_cval_cpc``) and missing dew
+        points are computed via :meth:`dew_point`.
+
+        Args:
+            df (pd.DataFrame): Windowed trip DataFrame. Must contain
+                ``signal_time``, ``window_id``, ``is_middle_row``,
+                ``is_first_row``, ``is_last_row``, ``latitude_cval_ippc``,
+                ``longitude_cval_ippc``, ``altitude_cval_ippc``, and
+                ``airtempoutsd_cval_cpc`` columns.
+            time_delta_hour (int, optional): Hours added/subtracted around the
+                window timestamp to define the Meteostat query interval.
+                Defaults to ``5``.
 
         Returns:
-            pandas.DataFrame: A DataFrame containing the hourly weather data for the specified
-                            location and time range. columns include:
-
-                            - station: only if query refers to multiple stations
-                            - temp (°C): Air temperature
-                            - dwpt (°C): Dew point
-                            - rhum (%): Relative humidity
-                            - prcp (mm): One-hour precipitation total
-                            - snow (mm): Snow depth
-                            - wdir (°): Average wind direction
-                            - wspd (km/h): Average wind speed
-                            - wpgt (km/h): Peak wind gust
-                            - pres (hPa): Sea-level air pressure
-                            - tsun (minutes): One-hour sunshine total
-                            - coco (int/float): Weather condition code
+            pd.DataFrame: One row per window with the following columns:
+                * ``window_id`` -- window index.
+                * ``airtempoutsd_cval_cpc`` -- onboard air temperature sensor value.
+                * ``temp`` (°C) -- air temperature.
+                * ``dwpt`` (°C) -- dew point temperature.
+                * ``rhum`` (%) -- relative humidity.
+                * ``prcp`` (mm) -- one-hour precipitation total.
+                * ``snow`` (mm) -- snow depth.
+                * ``wdir`` (°) -- average wind direction.
+                * ``wspd`` (km/h) -- average wind speed.
+                * ``wpgt`` (km/h) -- peak wind gust.
+                * ``pres`` (hPa) -- sea-level air pressure.
+                * ``tsun`` (min) -- one-hour sunshine total.
+                * ``coco`` (int) -- Meteostat weather condition code.
+        Note:
+            This function was developed with the assistance of Claude AI (Anthropic).
         """
         results = []
         df["signal_time_hour"] = pd.to_datetime(df['signal_time']).dt.round('h')
@@ -144,26 +247,37 @@ class TruckDataWeatherLabeler:
 
         mask = weather_df["dwpt"].isna() & weather_df["temp"].notna() & weather_df["rhum"].notna()
         if mask.any():
-            weather_df.loc[mask, "dwpt"] = self._dew_point(
+            weather_df.loc[mask, "dwpt"] = self.dew_point(
                 weather_df.loc[mask, "temp"],
                 weather_df.loc[mask, "rhum"]
             )
 
         return weather_df
       
-    def _label_weather_data(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Label weather data with scientifically-grounded thresholds.
-        Fills small gaps ONLY when surrounding values match (safe interpolation).
-        
-        References:
-        - Meteostat codes: https://dev.meteostat.net/formats.html
-        - WMO Manual on Codes (WMO-No. 306, Volume I.2)
-        - Freezing rain: WMO (2017) via UNDRR
-        - Black ice: American Meteorological Society Glossary
-        - Road icing: Liu et al. (2023), Frontiers in Earth Science
-        - Precipitation intensity: WMO present weather codes
-        - Wind classifications: Beaufort scale adapted for meteorological use
+    def label_weather_data(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Assigns weather and air temperature labels to each window using meteorological thresholds.
+
+        Classification follows a priority chain:
+        Meteostat code → storm → heavy snow → snow → heavy rain → rain →
+        high wind → fog → clear. Small unlabeled gaps are filled by
+        :meth:`fill_matching_gaps` when surrounding labels agree.
+
+        Args:
+            df (pd.DataFrame): Windowed weather DataFrame. Must contain
+                ``airtempoutsd_cval_cpc``, ``dwpt``, ``rhum``, ``prcp``,
+                ``snow``, ``wspd``, ``wpgt``, ``pres``, ``tsun``, and
+                ``coco`` columns.
+
+        Returns:
+            pd.DataFrame: Input DataFrame with three additional columns:
+
+            * ``air_temperature`` -- air temperature label (e.g. ``'cold'``, ``'warm'``).
+            * ``weather`` -- weather condition label (e.g. ``'rain'``, ``'fog'``).
+            * ``weather_gap_filled`` -- ``True`` where a gap was filled rather
+            than directly observed.
+
+        Note:
+            This function was developed with the assistance of Claude AI (Anthropic).
         """
         temp = df["airtempoutsd_cval_cpc"]
         dwpt = df["dwpt"]
@@ -176,9 +290,7 @@ class TruckDataWeatherLabeler:
         tsun = df["tsun"]
         coco = df["coco"]
 
-        # ============================================================================
         # AIR TEMPERATURE CLASSIFICATION
-        # ============================================================================
         air_temperature = pd.Series(index=df.index, dtype="string")
         air_temperature[temp < -10] = "extreme_cold"
         air_temperature[(temp >= -10) & (temp <= 0)] = "freezing_cold"
@@ -187,10 +299,7 @@ class TruckDataWeatherLabeler:
         air_temperature[(temp > 20) & (temp <= 30)] = "warm"
         air_temperature[temp > 30] = "extreme_heat"
 
-        # ===========================================================================
         # ATMOSPHERIC WEATHER CLASSIFICATION  
-        # Priority: Meteostat code > severe > precip > wind > fog > clear
-        # ============================================================================
         weather = pd.Series(index=df.index, dtype="string")
         
         weather = coco.map(self.weather_codes)
@@ -250,9 +359,9 @@ class TruckDataWeatherLabeler:
         fog_cond = (
             (rhum >= 90) & 
             (abs(temp - dwpt) <= 2.5) &    # Small spread
-            (tsun < 15) &                   # < 15 min sunshine/hour
-            (prcp < 0.5) &                  # Not raining
-            (wspd < 15) &                   # Light wind (fog disperses in wind)
+            (tsun < 15) &                  # < 15 min sunshine/hour
+            (prcp < 0.5) &                 # Not raining
+            (wspd < 15) &                  # Light wind (fog disperses in wind)
             weather_na
         )
         weather[fog_cond] = "fog"
@@ -268,9 +377,8 @@ class TruckDataWeatherLabeler:
         )
         weather[clear_cond] = "clear"
         
-        #
         # GAP FILLING
-        weather = self._fill_matching_gaps(weather, max_gap_size=5)
+        weather = self.fill_matching_gaps(weather, max_gap_size=5)
         df["weather_gap_filled"] = weather.notna() & coco.map(self.weather_codes).isna()
         df["air_temperature"] = air_temperature
         df["weather"] = weather
@@ -278,8 +386,22 @@ class TruckDataWeatherLabeler:
         return df
     
     @staticmethod
-    def _fill_matching_gaps(series: pd.Series, max_gap_size: int = 3) -> pd.Series:
-       
+    def fill_matching_gaps(series: pd.Series, max_gap_size: int = 3) -> pd.Series:
+        """Fills small ``NaN`` gaps in a categorical Series by safe interpolation.
+
+        A gap is filled only when both the preceding and following non-``NaN``
+        values are identical, ensuring no label is invented at boundaries
+        between different conditions.
+
+        Args:
+            series (pd.Series): Categorical Series with potential ``NaN`` gaps.
+            max_gap_size (int, optional): Maximum number of consecutive ``NaN``
+                values to fill. Gaps larger than this are left unchanged.
+                Defaults to ``3``.
+
+        Returns:
+            pd.Series: Copy of ``series`` with qualifying gaps filled.
+        """
         series = series.copy()
         
         # Identify gap groups
@@ -318,7 +440,25 @@ class TruckDataWeatherLabeler:
         return series
 
     @staticmethod
-    def _label_truck_data(truck_data: pd.DataFrame, weather_data_labeled: pd.DataFrame) -> pd.DataFrame:
+    def label_truck_data(truck_data: pd.DataFrame, weather_data_labeled: pd.DataFrame) -> pd.DataFrame:
+        """Merges weather labels into the original truck trip DataFrame.
+
+        Joins ``air_temperature`` and ``weather`` columns from the labeled
+        weather DataFrame onto the truck data using ``window_id`` as the key,
+        then drops the temporary ``window_id`` and ``is_middle_row`` columns.
+
+        Args:
+            truck_data (pd.DataFrame): Original trip DataFrame containing a
+                ``window_id`` column.
+            weather_data_labeled (pd.DataFrame): Labeled weather DataFrame
+                as returned by :meth:`label_weather_data`. Must contain
+                ``window_id``, ``air_temperature``, and ``weather`` columns.
+
+        Returns:
+            pd.DataFrame: Truck DataFrame with ``air_temperature`` and
+                ``weather`` columns added and ``window_id`` and
+                ``is_middle_row`` dropped.
+        """
         truck_data_labeled = truck_data.merge(
             weather_data_labeled[[
                 "window_id", 
@@ -332,10 +472,16 @@ class TruckDataWeatherLabeler:
 
         return truck_data_labeled
     
+    def save_label_distribution(self, df_labeled: pd.DataFrame, filename: str) -> None:
+        """Computes and saves label distributions for weather columns as JSON.
 
-    def _save_label_distribution(self, df_labeled: pd.DataFrame, filename: str) -> None:
-        """
-        Saves label distributions for air_temperature and weather to JSON.
+        Calculates the percentage distribution of values in ``air_temperature``
+        and ``weather`` columns and saves the result to ``results_dir``.
+
+        Args:
+            df_labeled (pd.DataFrame): Labeled trip DataFrame containing
+                ``air_temperature`` and ``weather`` columns.
+            filename (str): Output filename stem (without extension).
         """
         distribution = {}
         for col in ["air_temperature", "weather"]:
@@ -343,32 +489,41 @@ class TruckDataWeatherLabeler:
                 dist = df_labeled[col].value_counts(normalize=True) * 100
                 distribution[col] = dist.to_dict()
         
-        save_path = self.results_path / f"{filename}.json" 
+        save_path = self.results_dir / f"{filename}.json" 
         with open(save_path, "w") as f:
             json.dump(distribution, f, indent=4)
 
-        return None
+    def run(self) -> None:
+        """Runs the full weather labeling pipeline over all verified trip files.
 
-    def run(self):
+        For each trip file, the pipeline:
 
+        1. Creates time-based windows with :meth:`create_windows`
+        2. Fetches hourly weather data with :meth:`fetch_hourly_weather_data`
+        3. Labels weather conditions with :meth:`label_weather_data`
+        4. Merges labels into the trip data with :meth:`label_truck_data`
+        5. Saves the labeled parquet and label distribution JSON
+
+        Already-processed files are skipped. Logs total elapsed time on completion.
+        """
         start_time = time.time()
-        paths, filenames = self._get_datasets()
+        paths, filenames = self.get_datasets()
        
         with tqdm(total=len(filenames), desc="Preprocessing datasets") as pbar:
             for i, (path, filename) in enumerate(zip(paths, filenames)):
-                output_path = Path(self.save_path, f"{filename}{self.file_extension}")
+                output_path = Path(self.labeled_data_dir, f"{filename}{self.file_extension}")
                 if output_path.exists():
                     tqdm.write(f"Skipping {filename}: already processed")
                     pbar.update(1)
                     continue
 
                 df = pd.read_parquet(path)
-                df_windows = self._create_windows(df)
-                weather_data = self._fetch_hourly_weather_data(df_windows)
-                weather_data_labeled = self._label_weather_data(weather_data)
-                df_labeled = self._label_truck_data(df, weather_data_labeled)
+                df_windows = self.create_windows(df)
+                weather_data = self.fetch_hourly_weather_data(df_windows)
+                weather_data_labeled = self.label_weather_data(weather_data)
+                df_labeled = self.label_truck_data(df, weather_data_labeled)
                 df_labeled.to_parquet(output_path)
-                self._save_label_distribution(df_labeled, filename)
+                self.save_label_distribution(df_labeled, filename)
 
                 assert len(df) == len(df_labeled)
 

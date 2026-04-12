@@ -1,6 +1,6 @@
 name: quality_verification
-processed_data_dir: /path/to/dir
+processed_data_dir: path/to/processed_data
 file_extension: .parquet
-verified_data_dir:  /path/to/dir
-results_dir: /path/to/dir
+verified_data_dir:  path/to/verified_data
+results_dir: path/to/data_understanding/results
 

@@ -1,5 +1,4 @@
 # @package _global_
-# python llm-erange/main.py --multirun +experiment/weather=100_1B,100_8B,500_1B,500_8B
 
 run_flags:
   data_understanding: false
@@ -43,10 +42,10 @@ llm:
   quantization: "none"
 
 training: 
-  save_results_dir_path: /mnt/nvme3/ilafkir/results/training/deep_range/weather/100_1B
-  save_results_inception: /mnt/nvme3/ilafkir/results/training/inception/weather/100
-  save_results_rocket: /mnt/nvme3/ilafkir/results/training/rocket/weather/100
-  save_results_resnet: /mnt/nvme3/ilafkir/results/training/resnet/weather/100
+  save_results_dir_path: path/to/results/training/deep_range/weather/100_1B
+  save_results_inception: path/to/results/training/inception/weather/100
+  save_results_rocket: path/to/results/training/rocket/weather/100
+  save_results_resnet: path/to/results/training/resnet/weather/100
 
   use_truck_data: true
   use_uea: false

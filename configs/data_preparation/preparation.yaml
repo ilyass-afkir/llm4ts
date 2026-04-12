@@ -1,13 +1,13 @@
 name: preparation
 
-verified_data_path: /path/to/verified_truck_data
-highway_labels_path: /mnt/nvme3/ilafkir/datasets/truck_data/highway_labels
-weather_labels_path: /mnt/nvme3/ilafkir/datasets/truck_data/weather_labels
+verified_data_dir: path/to/verified_truck_data
+highway_labels_dir: path/to/highway_labels
+weather_labels_dir: path/to/weather_labels
 
-save_labeled_path: /mnt/nvme3/ilafkir/datasets/labeled_truck_data
-save_windows_path: /mnt/nvme3/ilafkir/datasets/truck_data_windows
-save_data_split_path: /mnt/nvme3/ilafkir/datasets/truck_data_split
-save_reports_path: /mnt/nvme3/ilafkir/datasets/label_distributions
+labeled_data_dir: path/to/labeled_data_dir
+data_windows_dir: path/to/data_windows_dir
+data_split_dir: path/to/truck_data_split
+results_dir: path/to/label_distributions
 
 file_extension: .parquet
 window_extension: .npy
@@ -28,14 +28,6 @@ signals_to_drop:
     - longitude_cval_ippc
   
   air_temperature_label:
-    - airtempinsd_cval_hvac
-    - airtempinsd_rq
-    - airtempoutsd_cval_cpc
-    - altitude_cval_ippc
-    - latitude_cval_ippc
-    - longitude_cval_ippc
-
-  surface_condition_label:
     - airtempinsd_cval_hvac
     - airtempinsd_rq
     - airtempoutsd_cval_cpc

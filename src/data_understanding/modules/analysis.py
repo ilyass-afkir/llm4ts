@@ -5,14 +5,11 @@ trip datasets, including trip durations, distances, payloads, geographic
 locations, and vehicle group distributions.
  
 Example:
-    >>> from omegaconf import OmegaConf
-    >>> cfg = OmegaConf.load("configs/data_understanding.yaml")
     >>> analyzer = TruckDataAnalyzer(cfg)
     >>> analyzer.run()
 """
 
 import logging
-from typing import List, Tuple, Dict, Union, Any
 import json
 from pathlib import Path
 
@@ -31,6 +28,7 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s"
 )
 
+
 class TruckDataAnalyzer:
     """Analyzes electric truck trip datasets for data understanding purposes.
  
@@ -40,35 +38,30 @@ class TruckDataAnalyzer:
     PDF/PNG plots.
  
     Attributes:
-        cfg (DictConfig): Hydra configuration object (OmegaConf ``DictConfig``).
+        cfg (DictConfig): Hydra configuration object. Must contain a 
+            ``data_understanding`` sub-config with the fields
+            ``file_extension``, ``verified_data_dir``, and ``results_dir``.
         verified_data_dir (Path): Directory containing verified parquet trip files.
         file_extension (str): File suffix used when globbing trip files (e.g. ``'.parquet'``).
         results_dir (Path): Directory where JSON summaries and plots are saved.
     """
+    
     def __init__(self, cfg: DictConfig) -> None:
-        """Initializes TruckDataQualityVerificator from a Hydra configuration object.
- 
-        Args:
-            cfg (DictConfig): Hydra configuration object (OmegaConf ``DictConfig``).
-                Must contain a ``data_understanding`` sub-config with the fields
-                ``file_extension``, ``verified_data_dir``, and ``results_dir``.
-        """
         self.cfg = cfg
         self.verified_data_dir = Path(self.cfg.data_understanding.verified_data_dir)
         self.file_extension = self.cfg.data_understanding.file_extension
         self.results_dir = Path(self.cfg.data_understanding.results_dir)
-
         self.setup_dirs()
 
     def setup_dirs(self) -> None:   
         """Creates required output directories if they do not already exist."""
         self.results_dir.mkdir(parents=True, exist_ok=True)
 
-    def get_datasets(self) -> Tuple[List[Path], List[str]]:
+    def get_datasets(self) -> tuple[list[Path], list[str]]:
         """Gets all trip files in the verified data directory.
 
         Returns:
-            Tuple[List[Path], List[str]]: A tuple of ``(paths, filenames)`` where 
+            tuple[list[Path], list[str]]: A tuple of ``(paths, filenames)`` where 
             ``paths`` is a sorted list of :class:`pathlib.Path` objects 
             matching ``file_extension``, and ``filenames`` contains the 
             corresponding stems (no extension).
@@ -138,7 +131,7 @@ class TruckDataAnalyzer:
 
         return summary
 
-    def get_trip_locations(self) -> Dict[str, List[str]]:
+    def get_trip_locations(self) -> dict[str, list[str]]:
         """Assigns country and region labels to all GPS points with reverse geocoding.
  
         Loads all verified parquet files, reverse-geocodes every GPS coordinate, 
@@ -146,8 +139,10 @@ class TruckDataAnalyzer:
         Results are saved to ``results_dir/trips_by_country.json``.
  
         Returns:
-            Dict[str, List[str]]: Mapping from country key (e.g. ``'DE'``,
+            dict[str, list[str]]: Mapping from country key (e.g. ``'DE'``,
             ``'DE,FR'``) to a list of trip filenames belonging to that key.
+        Note:
+            This function was developed with the assistance of Claude AI (Anthropic).
         """
         paths, filenames = self.get_datasets()
     
@@ -200,7 +195,7 @@ class TruckDataAnalyzer:
 
         return trips_dict
         
-    def generate_trips_summary(self) -> Dict[str, Union[List[str], Dict[str, Any]]]:
+    def generate_trips_summary(self) -> dict[str, list[str] | dict[str, any]]:
         """Generates a statistical summary of trips grouped by country.
  
         Reads ``trips_by_country.json`` and computes per-country trip counts,
@@ -208,8 +203,10 @@ class TruckDataAnalyzer:
         ``results_dir/trips_summary.json``.
  
         Returns:
-            Dict[str, Union[List[str], Dict[str, Any]]]: Summary dictionary containing country lists, per-key trip
+            dict[str, list[str] | dict[str, any]]: Summary dictionary containing country lists, per-key trip
                 counts and percentages, and a ``multi_country_breakdown`` entry.
+        Note:
+            This function was developed with the assistance of Claude AI (Anthropic).
         """
         with open(self.results_dir / "trips_by_country.json", "r") as f:
             trips_dict = json.load(f)
@@ -490,7 +487,7 @@ class TruckDataAnalyzer:
         plt.close()
         logger.info(f"Saved plot to {png_path} and {pdf_path}")
      
-    def collect_trip_metadata(self) -> Dict[str, Union[int, float, List[float]]]:
+    def collect_trip_metadata(self) -> dict[str, int | float | list[float]]:
         """Collects and saves descriptive statistics for trip metadata.
  
         Iterates over all verified parquet files and aggregates statistics
@@ -498,7 +495,7 @@ class TruckDataAnalyzer:
         ``results_dir/meta_data.json``.
  
         Returns:
-            Dict[str, Union[int, float, List[float]]]: Metadata dictionary containing ``total_trips``, 
+            dict[str, int | float | list[float]]: Metadata dictionary containing ``total_trips``, 
             min/max/mean/std and sequence values for ``payload``, ``distance``, and ``duration``.
         """
         paths, _ = self.get_datasets()

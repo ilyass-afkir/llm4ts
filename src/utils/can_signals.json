@@ -1,0 +1,261 @@
+[
+  {
+    "signal": "accelpdlposn_cval",
+    "unit": "%",
+    "freq_Hz": 10,
+    "description": "Accelerator pedal position (current value)"
+  },
+  {
+    "signal": "actdrvtrnpwrprc_cval",
+    "unit": "%",
+    "freq_Hz": 10,
+    "description": "Ratio of actual to maximum available drivetrain power (current value)"
+  },
+  {
+    "signal": "actualdcvoltage_pti1",
+    "unit": "V",
+    "freq_Hz": 1,
+    "description": "DC link voltage of PTI1 inverter"
+  },
+  {
+    "signal": "actualspeed_pti1",
+    "unit": "rpm",
+    "freq_Hz": 10,
+    "description": "Motor speed measured at PTI1 inverter"
+  },
+  {
+    "signal": "actualtorque_pti1",
+    "unit": "%",
+    "freq_Hz": 10,
+    "description": "Motor torque output of PTI1 inverter"
+  },
+  {
+    "signal": "airtempinsd_cval_hvac",
+    "unit": "°C",
+    "freq_Hz": 1,
+    "description": "Cabin air temperature from HVAC sensor (current value)"
+  },
+  {
+    "signal": "airtempinsd_rq",
+    "unit": "°C",
+    "freq_Hz": 1,
+    "description": "Cabin air temperature setpoint (requested value)"
+  },
+  {
+    "signal": "airtempoutsd_cval_cpc",
+    "unit": "°C",
+    "freq_Hz": 1,
+    "description": "Ambient air temperature (current value, SPN171, J1939)"
+  },
+  {
+    "signal": "altitude_cval_ippc",
+    "unit": "m",
+    "freq_Hz": 0.2,
+    "description": "Vehicle altitude from GPS (current value)"
+  },
+  {
+    "signal": "brc_stat_brc1",
+    "unit": "--",
+    "freq_Hz": null,
+    "description": "Brake chopper BRC1 status"
+  },
+  {
+    "signal": "brktempra_cval",
+    "unit": "°C",
+    "freq_Hz": 0.1,
+    "description": "Rear axle brake temperature (current value)"
+  },
+  {
+    "signal": "bs_brk_cval",
+    "unit": "%",
+    "freq_Hz": 1,
+    "description": "Brake pedal position (current value)"
+  },
+  {
+    "signal": "currpwr_contendrnbrkresist_cval",
+    "unit": "kW",
+    "freq_Hz": null,
+    "description": "Power dissipated in brake resistor (current value)"
+  },
+  {
+    "signal": "elcomp_pwrcons_cval",
+    "unit": "kW",
+    "freq_Hz": null,
+    "description": "Power consumption of the electric compressor (current value)"
+  },
+  {
+    "signal": "emot_pwr_cval",
+    "unit": "kW",
+    "freq_Hz": 10,
+    "description": "Actual electrical power of all e-motors (current value)"
+  },
+  {
+    "signal": "epto_pwr_cval",
+    "unit": "kW",
+    "freq_Hz": null,
+    "description": "Power of the electric PTO (current value)"
+  },
+  {
+    "signal": "hirestotalvehdist_cval_icuc",
+    "unit": "km",
+    "freq_Hz": 1,
+    "description": "High-resolution total vehicle distance from ICUC (current value)"
+  },
+  {
+    "signal": "hv_bat_dc_momvolt_cval_bms1",
+    "unit": "V",
+    "freq_Hz": 10,
+    "description": "Instantaneous high-voltage battery voltage (current value)"
+  },
+  {
+    "signal": "hv_bat_soc_cval_bms1",
+    "unit": "%",
+    "freq_Hz": 1,
+    "description": "High-voltage battery state of charge (current value, SAE HVES Fast Update)"
+  },
+  {
+    "signal": "hv_batavcelltemp_cval_bms1",
+    "unit": "°C",
+    "freq_Hz": 1,
+    "description": "Average high-voltage battery cell temperature (current value, SAE Hybrid Battery, lowest cell temperature)"
+  },
+  {
+    "signal": "hv_bat_curr_cval_bms1",
+    "unit": "A",
+    "freq_Hz": 10,
+    "description": "High-voltage battery current (current value, SAE HVES)"
+  },
+  {
+    "signal": "hv_batisores_cval_e2e",
+    "unit": "Ω/V",
+    "freq_Hz": 1,
+    "description": "High-voltage insulation resistance (current value, HV-ISO)"
+  },
+  {
+    "signal": "hv_batmaxchrgpwrlim_cval_1",
+    "unit": "kW",
+    "freq_Hz": 1,
+    "description": "Maximum high-voltage battery charge power limit (current value, SAE HVES)"
+  },
+  {
+    "signal": "hv_batmaxdischrgpwrlim_cval_1",
+    "unit": "kW",
+    "freq_Hz": 1,
+    "description": "Maximum high-voltage battery discharge power limit (current value, SAE HVES)"
+  },
+  {
+    "signal": "hv_batmomavldischrgen_cval_1",
+    "unit": "kWh",
+    "freq_Hz": 0.1,
+    "description": "Momentary available high-voltage battery discharge energy (current value)"
+  },
+  {
+    "signal": "hv_batpwr_cval_bms1",
+    "unit": "kW",
+    "freq_Hz": 10,
+    "description": "High-voltage battery power (current value)"
+  },
+  {
+    "signal": "hv_curr_cval_dcl1",
+    "unit": "A",
+    "freq_Hz": 0.1,
+    "description": "DC/DC converter high-voltage current (current value)"
+  },
+  {
+    "signal": "hv_dclink_volt_cval_dcl1",
+    "unit": "V",
+    "freq_Hz": 0.1,
+    "description": "DC/DC converter high-voltage link voltage (current value)"
+  },
+  {
+    "signal": "hv_ptc_cabin1_pwr_cval",
+    "unit": "kW",
+    "freq_Hz": 10,
+    "description": "Cabin high-voltage PTC 1 power (current value)"
+  },
+  {
+    "signal": "hv_pwr_cval_dcl1",
+    "unit": "V",
+    "freq_Hz": 10,
+    "description": "DC/DC converter high-voltage power (current value)"
+  },
+  {
+    "signal": "latitude_cval_ippc",
+    "unit": "deg",
+    "freq_Hz": 0.2,
+    "description": "Latitude (current value)"
+  },
+  {
+    "signal": "longitude_cval_ippc",
+    "unit": "deg",
+    "freq_Hz": 0.2,
+    "description": "Longitude (current value)"
+  },
+  {
+    "signal": "lv_convpwr_cval_dcl1",
+    "unit": "kW",
+    "freq_Hz": 0.1,
+    "description": "DC/DC converter low-voltage power (current value)"
+  },
+  {
+    "signal": "maxrecuppwrprc_cval",
+    "unit": "%",
+    "freq_Hz": 10,
+    "description": "Ratio of actual to maximum available regenerative braking power (current value)"
+  },
+  {
+    "signal": "maxtracpwrpct_cval",
+    "unit": "%",
+    "freq_Hz": 10,
+    "description": "Ratio of actual to maximum available traction power (current value)"
+  },
+  {
+    "signal": "motortemperature_pti1",
+    "unit": "°C",
+    "freq_Hz": 1,
+    "description": "PTI1 motor temperature (current value)"
+  },
+  {
+    "signal": "powerstagetemperature_pti1",
+    "unit": "°C",
+    "freq_Hz": 1,
+    "description": "PTI1 inverter temperature (current value)"
+  },
+  {
+    "signal": "rmsmotorcurrent_pti1",
+    "unit": "A",
+    "freq_Hz": 1,
+    "description": "PTI1 AC motor current RMS"
+  },
+  {
+    "signal": "roadgrad_cval_pt",
+    "unit": "%",
+    "freq_Hz": 1,
+    "description": "Road grade measured by CPC accelerometer (current value)"
+  },
+  {
+    "signal": "selgr_rq_pt",
+    "unit": "--",
+    "freq_Hz": null,
+    "description": "Selected gear"
+  },
+  {
+    "signal": "txoiltemp_cval_tcm",
+    "unit": "°C",
+    "freq_Hz": 10,
+    "description": "Transmission oil temperature (current value, calculated by TCM)"
+  },
+  {
+    "signal": "vehspd_cval_cpc",
+    "unit": "km/h",
+    "freq_Hz": 1,
+    "description": "Vehicle speed (current value, CPC)"
+  },
+  {
+    "signal": "vehweight_cval_pt",
+    "unit": "t",
+    "freq_Hz": 0.1,
+    "description": "Vehicle weight (current value)"
+  }
+]
+

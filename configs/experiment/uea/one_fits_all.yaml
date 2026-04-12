@@ -1,5 +1,4 @@
 # @package _global_
-# python llm-erange/main.py +experiment/uea=time_llm
 
 run_flags:
   data_understanding: false
@@ -14,7 +13,7 @@ llm:
   quantization: None
 
 training: 
-  save_results_dir_path: /mnt/nvme3/ilafkir/results/training/uea_normalized/final/one_fits_all
+  save_results_dir_path: path/to/results/training/uea_normalized/final/one_fits_all
   
   use_truck_data: false
   use_uea: true

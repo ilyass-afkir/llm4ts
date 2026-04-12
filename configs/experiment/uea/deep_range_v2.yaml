@@ -1,5 +1,4 @@
 # @package _global_
-# python llm-erange/main.py --multirun +experiment/uea=deep_range,deep_range_v2
 
 run_flags:
   data_understanding: false
@@ -14,7 +13,7 @@ llm:
   quantization: None
 
 training: 
-  save_results_dir_path: /mnt/nvme3/ilafkir/results/training/uea_normalized/final/dp_v2
+  save_results_dir_path: path/to/results/training/uea_normalized/final/dp_v2
 
   use_truck_data: false
   use_uea: true

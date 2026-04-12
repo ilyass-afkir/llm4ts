@@ -5,15 +5,12 @@ GPS point using spatial matching against offline or online OSM sources,
 and writes the labeled outputs and verification plots to disk.
 
 Example:
-    >>> from omegaconf import OmegaConf
-    >>> cfg = OmegaConf.load("configs/data_preparation.yaml")
     >>> labeler = TruckDataHighwayLabeler(cfg)
     >>> labeler.run()
 """
 
 import logging
 from pathlib import Path
-from typing import Tuple, List, Dict
 import time
 import json
 import gc
@@ -39,6 +36,7 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s [%(levelname)s] %(message)s")
 
+
 class TruckDataHighwayLabeler:
     """Labels GPS trajectory points of electric trucks with OSM highway types.
     
@@ -50,30 +48,30 @@ class TruckDataHighwayLabeler:
 
     Attributes:
         cfg (DictConfig): Hydra configuration object.
+            Must contain a ``data_preparation`` sub-config with the fields ``file_extension``, 
+            ``verified_data_dir``, ``labeled_data_dir``, ``plots_dir``, 
+            ``osm_maps_dir``, ``trip_locations_file`` and ``processed_osm_maps_dir``.
         verified_data_dir (Path): Directory containing verified parquet trip files.
         file_extension (str): File suffix used when globbing trip files (e.g. ``'.parquet'``).
         labeled_data_dir (Path): Directory where labeled parquet files are written.
         plots_dir (Path): Directory where Folium HTML verification maps are written.
         trip_locations_file (Path): Path to the JSON file mapping country keys to trip filenames
             created by :meth:`data_understanding.modules.analysis.TruckDataAnalyzer.get_trip_locations`.
-        osm_maps_dir (Path): Root directory containing the offline OSM PBF maps.
+        osm_maps_dir (Path): 
+            Root directory containing the offline OSM PBF maps.
+            Reference: https://download.geofabrik.de.
         processed_osm_maps_dir (Path): Cache directory for processed highway GeoDataFrames.
-        highway_labeling_signals (list of str): Signals used for highway labeling.
-        highway_labels (list of str): List of OSM highway labels.
-        truck_speed_ranges (dict): Recommended speed ranges per highway type.
-        highway_priority (dict): Priority ranking for conflicting highway assignments.
-        country_code_to_osm_map (dict): Mapping from country codes to OSM PBF filenames.
-        crs_codes (dict): CRS projection codes per country.
+        highway_labeling_signals (list[str]): Signals used for highway labeling.
+        highway_labels (list[str]): List of OSM highway labels.
+        truck_speed_ranges (dict[str, tuple[int, int]]): Recommended speed ranges per highway type.
+        highway_priority (dict[str, int]): Priority ranking for conflicting highway assignments.
+        country_code_to_osm_map (dict[str, str]): Mapping from country codes to OSM PBF filenames.
+        crs_codes (dict[str, str]): CRS projection codes per country.
     """
+    
     def __init__(self, cfg: DictConfig):  
-        """Initializes the labeler from a Hydra configuration object.
-
-        Args:
-            cfg (DictConfig): Hydra configuration object. Must contain a
-                ``data_preparation`` sub-config with the fields used by
-                this class.
-        """
         self.cfg = cfg
+        
         self.verified_data_dir = Path(self.cfg.data_preparation.verified_data_dir)
         self.file_extension = self.cfg.data_preparation.file_extension
         self.labeled_data_dir = Path(self.cfg.data_preparation.labeled_data_dir)
@@ -81,24 +79,26 @@ class TruckDataHighwayLabeler:
         self.trip_locations_file = Path(self.cfg.data_preparation.trip_locations_file)
         self.osm_maps_dir = Path(self.cfg.data_preparation.osm_maps_dir)
         self.processed_osm_maps_dir = Path(self.cfg.data_preparation.processed_osm_maps_dir)
+        
         self.highway_labeling_signals = const.HIGHWAY_LABELING_SIGNALS
         self.highway_labels = const.HIGHWAY_LABELS
         self.truck_speed_ranges = const.TRUCK_SPEED_RANGES
         self.highway_priority = const.HIGHWAY_PRIORITY
         self.country_code_to_osm_map = const.COUNTRY_CODE_TO_OSM_MAP
         self.crs_codes = const.CRS_CODES
+        
         self.setup_dirs()
   
-    def setup_dirs(self):
+    def setup_dirs(self) -> None:
         """Creates required output directories if they do not already exist."""
         for path in [self.processed_osm_maps_dir, self.labeled_data_dir, self.plots_dir]:
             path.mkdir(parents=True, exist_ok=True)
 
-    def get_datasets(self) -> Tuple[List[Path], List[str]]:
+    def get_datasets(self) -> tuple[list[Path], list[str]]:
         """Gets all trip files in the verified data directory.
 
         Returns:
-            Tuple[List[Path], List[str]]: A tuple of ``(paths, filenames)`` where
+            tuple[list[Path], list[str]]: A tuple of ``(paths, filenames)`` where
                 ``paths`` is a sorted list of :class:`pathlib.Path` objects
                 matching ``file_extension``, and ``filenames`` contains the
                 corresponding stems (no extension).
@@ -107,7 +107,7 @@ class TruckDataHighwayLabeler:
         filenames = [f.stem for f in paths]
         return paths, filenames
 
-    def get_datasets_by_country(self) -> Dict[str, Tuple[List[Path], List[str]]]:
+    def get_datasets_by_country(self) -> dict[str, tuple[list[Path], list[str]]]:
         """Groups trip file paths by country (or country combination) key.
 
         Reads the JSON file at ``trip_locations_path`` which maps each country
@@ -115,7 +115,7 @@ class TruckDataHighwayLabeler:
         filename.
 
         Returns:
-            Dict[str, Tuple[List[Path], List[str]]]: A dict mapping each country 
+            dict[str, tuple[list[Path], list[str]]]: A dict mapping each country 
             key (e.g. ``"DE"`` or ``"DK,SE"``) to a tuple ``(paths, filenames)`` of 
             resolved :class:`~pathlib.Path` objects and their stems.
         """
@@ -273,7 +273,6 @@ class TruckDataHighwayLabeler:
                     border:      none;
                     border-top:  1.3px solid #999;">
         '''
-
         for highway_label, percentage in highway_percentages.items():
             color = highway_colors.get(highway_label, '#000000')
             legend_html += f'''
@@ -316,13 +315,12 @@ class TruckDataHighwayLabeler:
         """Computes a weighted score for each candidate highway match.
 
         The score combines three normalized sub-scores:
-
-        * **Speed score** (weight 0.3): ``1.0`` if the point's vehicle speed falls within the 
-            expected range for the candidate highway type, else ``0.0``.
-        * **Priority score** (weight 0.3): highway priority value normalized to 
-            ``[0, 1]`` using :attr:`data_preparation.modules.constants.HIGHWAY_PRIORITY`.
-        * **Distance score** (weight 0.4): linear decay from ``1.0`` (distance = 0) 
-            to ``0.0`` (distance = ``max_distance``).
+            * **Speed score** (weight 0.3): ``1.0`` if the point's vehicle speed falls within the 
+                expected range for the candidate highway type, else ``0.0``.
+            * **Priority score** (weight 0.3): highway priority value normalized to 
+                ``[0, 1]`` using :attr:`data_preparation.modules.constants.HIGHWAY_PRIORITY`.
+            * **Distance score** (weight 0.4): linear decay from ``1.0`` (distance = 0) 
+                to ``0.0`` (distance = ``max_distance``).
 
         Args:
             gdf_labeled (gpd.GeoDataFrame): Candidate matches from a spatial join.
@@ -334,6 +332,9 @@ class TruckDataHighwayLabeler:
 
         Returns:
             pd.Series: Float scores in ``[0, 1]`` aligned to ``gdf_labeled``'s index.
+        
+        Note:
+            This function was developed with the assistance of Claude AI (Anthropic).
         """
         speed_col = gdf_labeled['vehspd_cval_cpc'].values
         hw_col = gdf_labeled['highway'].values
@@ -363,22 +364,22 @@ class TruckDataHighwayLabeler:
         return pd.Series(total_weighted_score, index=gdf_labeled.index)
 
     @staticmethod
-    def _add_empty_highway_column(df):
-        """Returns a copy of ``df`` with a ``highway_label`` column initialised to ``None``.
+    def add_empty_highway_column(df: pd.DataFrame | gpd.GeoDataFrame) -> pd.DataFrame | gpd.GeoDataFrame:
+        """Returns a copy of ``df`` with a ``highway_label`` column initialized to ``None``.
 
         Used as a safe fallback whenever a labeling step fails or produces no results.
 
         Args:
-            df: Input trip DataFrame.
+            df (pd.Dataframe | gpd.GeoDataFrame): Input trip DataFrame.
 
         Returns:
-            A copy of ``df`` with an additional ``highway_label`` column set to ``None``.
+            pd.DataFrame | gpd.GeoDataFrame: A copy of ``df`` with an additional ``highway_label`` column set to ``None``.
         """
         df = df.copy()
         df["highway_label"] = None
         return df
 
-    def _load_offline_map_with_pyogrio(self, country: str):
+    def load_offline_map_with_pyogrio(self, country: str) -> gpd.GeoDataFrame:
         """Loads the highway layer for a single country from its offline OSM file.
 
         On the first call the layer is read from the GeoPackage / PBF via
@@ -386,11 +387,11 @@ class TruckDataHighwayLabeler:
         cached Parquet directly, skipping the expensive file read.
 
         Args:
-            country: Country code (e.g. ``"DE"``). Used to look up the OSM
+            country (str): Country code (e.g. ``"DE"``). Used to look up the OSM
                 filename in ``country_osm_map`` and to name the cache file.
 
         Returns:
-            A :class:`~geopandas.GeoDataFrame` containing highway geometries and
+            gpd.GeoDataFrame: A geopandas GeoDataFrame containing highway geometries and
             a ``highway`` attribute column, filtered to the types listed in
             ``highway_labels``.
 
@@ -399,17 +400,17 @@ class TruckDataHighwayLabeler:
             the error.
         """
         highway_where = "highway IN ('" + "','".join(self.highway_labels) + "')"
-        output_path = self.save_loaded_map_path / f"{country}_highways.parquet"
+        output_path = self.processed_osm_maps_dir / f"{country}_highways.parquet"
 
         if output_path.exists():
-            logger.info(f"Highways for {country} from offline map {self.country_osm_map[country]} were already loaded")
+            logger.info(f"Highways for {country} from offline map {self.country_code_to_osm_map[country]} were already loaded")
             return gpd.read_parquet(output_path)
         
         else:
             try:
-                logger.info(f"Loading highways for {country} from offline map {self.country_osm_map[country]} as GeoDataFrame")
+                logger.info(f"Loading highways for {country} from offline map {self.country_code_to_osm_map[country]} as GeoDataFrame")
                 gdf_highways = gpd.read_file(
-                    str(self.map_path / self.country_osm_map[country]),
+                    str(self.osm_maps_dir / self.country_code_to_osm_map[country]),
                     engine="pyogrio",
                     use_arrow=True,
                     layer="lines",
@@ -424,33 +425,31 @@ class TruckDataHighwayLabeler:
                 return gdf_highways
 
             except Exception as e:
-                logger.error(f"Failed to load offline map {self.country_osm_map[country]} as GeoDataFrame: {e}")
-                raise
-
-    def _load_multiple_offline_maps_with_pyogrio(self, country: str):
+                logger.error(f"Failed to load offline map {self.country_code_to_osm_map[country]} as GeoDataFrame: {e}")
+                
+    def load_multiple_offline_maps_with_pyogrio(self, country: str) -> gpd.GeoDataFrame:
         """Loads and concatenates highway layers for a comma-separated list of countries.
 
-        Delegates to :meth:`_load_offline_map_with_pyogrio` for each individual
+        Delegates to :meth:`load_offline_map_with_pyogrio` for each individual
         country, then concatenates the results into a single GeoDataFrame.
 
         Args:
-            country: Comma-separated country codes (e.g. ``"DK,SE"``).
+            country (list[str]): Comma-separated country codes (e.g. ``"DK,SE"``).
 
         Returns:
-            A concatenated :class:`~geopandas.GeoDataFrame` covering all
+            gpd.GeoDataFrame: A geopandas GeoDataFrame covering all
             specified countries, with a reset integer index.
         """
         gdfs = []
         for country in country.split(","):
-            gdf = self._load_offline_map_with_pyogrio(country.strip())
+            gdf = self.load_offline_map_with_pyogrio(country.strip())
             gdfs.append(gdf)
         
         gdf_concat = pd.concat(gdfs, ignore_index=True)
         
-        
         return gdf_concat
       
-    def _online_labeling_with_osmnx_features(
+    def online_labeling_with_osmnx_features(
         self, 
         df: pd.DataFrame, 
         bbox_buffer: float, 
@@ -466,16 +465,16 @@ class TruckDataHighwayLabeler:
         each point.
 
         Args:
-            df: Trip DataFrame with ``latitude_cval_ippc`` and
+            df (pd.DataFrame): Trip DataFrame with ``latitude_cval_ippc`` and
                 ``longitude_cval_ippc`` columns.
-            bbox_buffer: Padding in decimal degrees added to each side of the
+            bbox_buffer (float): Padding in decimal degrees added to each side of the
                 bounding box before querying OSM.
-            max_distance: Maximum snap distance in metres. Points further from
+            max_distance (float): Maximum snap distance in metres. Points further from
                 any highway remain unlabeled (``NaN``).
-            country: Country code used for CRS lookup.
+            country (str): Country code used for CRS lookup.
 
         Returns:
-            A copy of ``df`` with a ``highway_label`` column. If the OSM
+            pd.DataFrame: A copy of ``df`` with a ``highway_label`` column. If the OSM
             request or spatial join fails, all labels are ``None``.
         """
         lon_min = df["longitude_cval_ippc"].min() - bbox_buffer
@@ -488,11 +487,11 @@ class TruckDataHighwayLabeler:
             gdf_highways = features_from_bbox(bbox, tags={"highway": self.highway_labels})
         except Exception as e:
             logger.error(f"OSM fetch failed: {e}")
-            return self._add_empty_highway_columns(df)
+            return self.add_empty_highway_column(df)
 
         if gdf_highways.empty:
             logger.warning("No highways found in bbox")
-            return self._add_empty_highway_columns(df)
+            return self.add_empty_highway_column(df)
 
         # Filter valid line geometries
         gdf_highways = gdf_highways[
@@ -503,7 +502,7 @@ class TruckDataHighwayLabeler:
 
         if gdf_highways.empty:
             logger.warning("No valid highway geometries")
-            return self._add_empty_highway_columns(df)
+            return self.add_empty_highway_column(df)
 
         # Create point GeoDataFrame
         df = df.copy()
@@ -516,11 +515,11 @@ class TruckDataHighwayLabeler:
 
         # Project to UTM for accurate distances
         try:
-            gdf_points = gdf_points.to_crs(self.utm_codes[country])
-            gdf_highways = gdf_highways.to_crs(self.utm_codes[country])
+            gdf_points = gdf_points.to_crs(self.crs_codes[country])
+            gdf_highways = gdf_highways.to_crs(self.crs_codes[country])
         except Exception as e:
             logger.error(f"CRS projection failed: {e}")
-            return self._add_empty_highway_columns(df)
+            return self.add_empty_highway_column(df)
 
         # Spatial join with distance threshold
         try:
@@ -537,7 +536,7 @@ class TruckDataHighwayLabeler:
             )
         except Exception as e:
             logger.error(f"Spatial join failed: {e}")
-            return self._add_empty_highway_columns(df)
+            return self.add_empty_highway_column(df)
 
         result = df.merge(
             gdf_labeled[['_point_id', 'highway']],
@@ -551,7 +550,7 @@ class TruckDataHighwayLabeler:
         
         return result
 
-    def _online_labeling_with_osmnx_graph(
+    def online_labeling_with_osmnx_graph(
         self, 
         df: pd.DataFrame, 
         bbox_buffer: float = 0.01
@@ -564,14 +563,17 @@ class TruckDataHighwayLabeler:
         the highway type.
 
         Args:
-            df: Trip DataFrame with ``latitude_cval_ippc`` and
+            df (pd.DataFrame): Trip DataFrame with ``latitude_cval_ippc`` and
                 ``longitude_cval_ippc`` columns.
-            bbox_buffer: Padding in decimal degrees added to each side of the
+            bbox_buffer (float): Padding in decimal degrees added to each side of the
                 bounding box before downloading the graph. Defaults to ``0.01``.
 
         Returns:
-            A copy of ``df`` with a ``highway_label`` column. If graph
+            pd.DataFrame: A copy of ``df`` with a ``highway_label`` column. If graph
             download fails or no edges are found, all labels are ``None``.
+        
+        Note:
+            This function was developed with the assistance of ChatGPT (OpenAI).
         """
         lon_min = df["longitude_cval_ippc"].min() - bbox_buffer
         lon_max = df["longitude_cval_ippc"].max() + bbox_buffer
@@ -595,11 +597,11 @@ class TruckDataHighwayLabeler:
 
         except Exception as e:
             logger.error(f"OSM fetch failed: {e}")
-            return self._add_empty_highway_columns(df)
+            return self.add_empty_highway_column(df)
 
         if len(G.edges) == 0:
             logger.warning("No highways found in graph")
-            return self._add_empty_highway_columns(df)
+            return self.add_empty_highway_column(df)
 
         # Snap each point to the nearest edge
         lons = df['longitude_cval_ippc'].to_numpy()
@@ -618,7 +620,7 @@ class TruckDataHighwayLabeler:
 
         return df
 
-    def _online_labeling_with_overpass(
+    def online_labeling_with_overpass(
         self, 
         df: pd.DataFrame, 
         bbox_buffer: float, 
@@ -628,28 +630,30 @@ class TruckDataHighwayLabeler:
         """Labels GPS points using highway geometries fetched from the Overpass API.
 
         Queries the Overpass API for all highway ways within the trip's bounding
-        box, builds a :class:`~geopandas.GeoDataFrame` of road geometries, and
+        box, builds a :class:`~gpd.GeoDataFrame` of road geometries, and
         then scores every (point, candidate highway) pair using a combination of
         priority and distance. Also detects roundabouts and intersections.
 
         Args:
-            df: Trip DataFrame with ``latitude_cval_ippc``, ``longitude_cval_ippc``,
+            df (pd.DataFrame): Trip DataFrame with ``latitude_cval_ippc``, ``longitude_cval_ippc``,
                 and ``vehspd_cval_cpc`` columns.
-            bbox_buffer: Padding in decimal degrees added to each side of the
+            bbox_buffer (float): Padding in decimal degrees added to each side of the
                 bounding box before querying Overpass.
-            max_distance: Maximum snap distance in metres. Matches beyond this
+            max_distance (float): Maximum snap distance in metres. Matches beyond this
                 threshold are discarded.
-            country: Country code used for CRS projection lookup.
+            country (str): Country code used for CRS projection lookup.
 
         Returns:
-            A copy of ``df`` with four additional columns:
-
-            * ``highway_label`` – OSM highway type string or ``None``.
-            * ``is_roundabout`` – ``True`` if the matched way is a roundabout.
-            * ``is_intersection`` – ``True`` if ≥ 3 distinct OSM ways are within 20 m.
-            * ``dist_to_highway_m`` – Distance in metres to the matched highway.
+            pd.DataFrame: A copy of ``df`` with four additional columns:
+                * ``highway_label`` – OSM highway type string or ``None``.
+                * ``is_roundabout`` – ``True`` if the matched way is a roundabout.
+                * ``is_intersection`` – ``True`` if ≥ 3 distinct OSM ways are within 20 m.
+                * ``dist_to_highway_m`` – Distance in metres to the matched highway.
 
             Falls back to a single ``highway_label = None`` column on any error.
+        
+        Note:
+            This function was developed with the assistance of Claude AI (Anthropic).
         """   
         lon_min = df["longitude_cval_ippc"].min() - bbox_buffer
         lon_max = df["longitude_cval_ippc"].max() + bbox_buffer
@@ -695,24 +699,24 @@ class TruckDataHighwayLabeler:
                         features.append({
                             'geometry': LineString(coords),
                             'highway': hwy_type,
-                            'priority': self.highway_prio.get(hwy_type, 0),
+                            'priority': self.highway_priority.get(hwy_type, 0),
                             'is_roundabout': is_roundabout,
                             'osm_id': element.get('id')
                         })
             
             if not features:
                 logger.warning("No highways found in bbox")
-                return self._add_empty_highway_column(df)
+                return self.add_empty_highway_column(df)
             
             gdf_highways = gpd.GeoDataFrame(features, crs="EPSG:4326")
             logger.info(f"✓ Fetched {len(gdf_highways)} highways")
             
         except Exception as e:
             logger.error(f"Overpass fetch failed: {e}")
-            return self._add_empty_highway_column(df)
+            return self.add_empty_highway_column(df)
 
         if gdf_highways.empty:
-            return self._add_empty_highway_column(df)
+            return self.add_empty_highway_column(df)
 
         # Filter valid geometries
         gdf_highways = gdf_highways[
@@ -722,7 +726,7 @@ class TruckDataHighwayLabeler:
         ].copy()
 
         if gdf_highways.empty:
-            return self._add_empty_highway_column(df)
+            return self.add_empty_highway_column(df)
 
         gdf_points = gpd.GeoDataFrame(
             df,
@@ -736,7 +740,7 @@ class TruckDataHighwayLabeler:
             gdf_highways = gdf_highways.to_crs("EPSG:3035")
         except Exception as e:
             logger.error(f"CRS projection failed: {e}")
-            return self._add_empty_highway_column(df)
+            return self.add_empty_highway_column(df)
 
         # Find ALL nearby highways for each point (not just one!)
         try:
@@ -841,7 +845,7 @@ class TruckDataHighwayLabeler:
             logger.error(f"Matching failed: {e}")
             import traceback
             logger.error(traceback.format_exc())
-            return self._add_empty_highway_columns(df)
+            return self.add_empty_highway_column(df)
 
         # Extract only the 3 new columns, preserve original index order
         result = df.copy()
@@ -866,8 +870,9 @@ class TruckDataHighwayLabeler:
         
         return result
     
-    def _offline_labeling_with_pyogrio(
-        self, df: pd.DataFrame, 
+    def offline_labeling_with_pyogrio(
+        self, 
+        df: pd.DataFrame, 
         bbox_buffer: float, 
         max_distance: float,
         crs: str, 
@@ -878,21 +883,21 @@ class TruckDataHighwayLabeler:
         Clips the highway GeoDataFrame to the trip's bounding box, projects
         both points and highways to the specified CRS, then runs a nearest-
         neighbour spatial join. Duplicate matches are resolved by the composite
-        weighted score from :meth:`_calculate_weighted_score`.
+        weighted score from :meth:`calculate_weighted_score`.
 
         Args:
-            df: Trip DataFrame with ``latitude_cval_ippc`` and
+            df (pd.DataFrame): Trip DataFrame with ``latitude_cval_ippc`` and
                 ``longitude_cval_ippc`` columns.
-            bbox_buffer: Padding in decimal degrees applied to the trip extent
+            bbox_buffer (float): Padding in decimal degrees applied to the trip extent
                 when clipping the highway GeoDataFrame.
-            max_distance: Maximum snap distance in metres passed to
-                :func:`geopandas.sjoin_nearest`.
-            crs: EPSG string for the projected CRS used during distance
+            max_distance (float): Maximum snap distance in metres passed to
+                :func:`gpd.sjoin_nearest`.
+            crs (str): EPSG string for the projected CRS used during distance
                 calculations (e.g. ``"EPSG:3035"``).
-            gdf_highways: Pre-loaded highway GeoDataFrame in ``EPSG:4326``.
+            gdf_highways (gpd.GeoDataFrame): Pre-loaded highway GeoDataFrame in ``EPSG:4326``.
 
         Returns:
-            A copy of ``df`` with ``highway_label`` and ``dist_to_highway_m``
+            pd.DataFrame: A copy of ``df`` with ``highway_label`` and ``dist_to_highway_m``
             columns. Falls back to ``highway_label = None`` on any error.
         """
         lon_min = df["longitude_cval_ippc"].min() - bbox_buffer
@@ -904,7 +909,7 @@ class TruckDataHighwayLabeler:
             gdf_highways_bbox = gdf_highways.cx[lon_min:lon_max, lat_min:lat_max]
         except Exception as e:
             logger.error(f"Filtering failed: {e}")
-            return self._add_empty_highway_column(df)
+            return self.add_empty_highway_column(df)
         
         try:
             gdf_highways_bbox = gdf_highways_bbox[
@@ -914,12 +919,12 @@ class TruckDataHighwayLabeler:
             
             if len(gdf_highways_bbox) == 0:
                 logger.warning("No valid highways in bbox")
-                return self._add_empty_highway_column(df)
+                return self.add_empty_highway_column(df)
             else:
                 logger.info(f"Valid geometries: {len(gdf_highways_bbox)} features")    
         except Exception as e:
             logger.error(f"Geometry validation failed: {e}")
-            return self._add_empty_highway_column(df)
+            return self.add_empty_highway_column(df)
 
         df = df.copy()
         df['point_id'] = range(len(df))
@@ -935,7 +940,7 @@ class TruckDataHighwayLabeler:
             gdf_highways_bbox = gdf_highways_bbox.to_crs(crs)
         except Exception as e:
             logger.error(f"CRS projection failed: {e}")
-            return self._add_empty_highway_column(df)
+            return self.add_empty_highway_column(df)
 
         try:
             gdf_labeled = gpd.sjoin_nearest(
@@ -947,7 +952,7 @@ class TruckDataHighwayLabeler:
             )
 
             # Calculate scores
-            gdf_labeled['total_weighted_score'] = self._calculate_weighted_score(gdf_labeled, max_distance)
+            gdf_labeled['total_weighted_score'] = self.calculate_weighted_score(gdf_labeled, max_distance)
 
             # Sort & deduplicate
             gdf_labeled = (
@@ -957,7 +962,7 @@ class TruckDataHighwayLabeler:
             
         except Exception as e:
             logger.error(f"Spatial join failed: {e}")
-            return self._add_empty_highway_column(df)
+            return self.add_empty_highway_column(df)
 
         result = df.merge(
             gdf_labeled[['point_id', 'highway', 'dist_to_highway_m']],
@@ -972,7 +977,7 @@ class TruckDataHighwayLabeler:
 
         return result
 
-    def _offline_labeling_with_pyrosm(
+    def offline_labeling_with_pyrosm(
         self, 
         df: pd.DataFrame, 
         bbox_buffer: float, 
@@ -986,123 +991,146 @@ class TruckDataHighwayLabeler:
         to assign highway labels.
 
         Args:
-            df: Trip DataFrame with ``latitude_cval_ippc`` and
+            df (pd.DataFrame): Trip DataFrame with ``latitude_cval_ippc`` and
                 ``longitude_cval_ippc`` columns.
-            bbox_buffer: Padding in decimal degrees added to the trip's bounding
+            bbox_buffer (float): Padding in decimal degrees added to the trip's bounding
                 box before passing it to *pyrosm*.
-            max_distance: Maximum snap distance in metres passed to
+            max_distance (float): Maximum snap distance in metres passed to
                 :func:`geopandas.sjoin_nearest`.
-            country: Country code used to look up the OSM PBF filename and the
+            country (str): Country code used to look up the OSM PBF filename and the
                 projected CRS.
 
         Returns:
-            A copy of ``df`` with a ``highway_label`` column and the temporary
+            pd.DataFrame: A copy of ``df`` with a ``highway_label`` column and the temporary
             ``dist_to_highway_m`` column dropped. Falls back to
             ``highway_label = None`` on any error.
         """
+        df = df.copy()
+
         lon_min = df["longitude_cval_ippc"].min() - bbox_buffer
         lon_max = df["longitude_cval_ippc"].max() + bbox_buffer
         lat_min = df["latitude_cval_ippc"].min() - bbox_buffer
         lat_max = df["latitude_cval_ippc"].max() + bbox_buffer
         bbox = (lon_min, lat_min, lon_max, lat_max)
 
-        osm = OSM(str(self.map_path / self.country_osm_map[country]), bounding_box=bbox)
-    
         try:
-
-            logger.info("Building GeoDataframe")
-
-            gdf_highways = osm.get_data_by_custom_criteria(
-                custom_filter={'highway': self.highway_labels },
-                filter_type='keep',
-                osm_keys_to_keep=['highway'],
-                tags_as_columns=['highway'],
-                keep_nodes=False,     
-                keep_ways=True,
-                keep_relations=False
+            osm = OSM(
+                str(self.osm_maps_dir / self.country_code_to_osm_map[country]),
+                bounding_box=bbox
             )
 
-            logger.info("GeoDataframe sucesfully build")
-            
-            del osm
-            gc.collect()
+            logger.info("Building GeoDataFrame")
+
+            gdf_highways = osm.get_data_by_custom_criteria(
+                custom_filter={"highway": self.highway_labels},
+                filter_type="keep",
+                osm_keys_to_keep=["highway"],
+                tags_as_columns=["highway"],
+                keep_nodes=False,
+                keep_ways=True,
+                keep_relations=False,
+            )
+
+            logger.info("GeoDataFrame successfully built")
 
         except Exception as e:
             logger.error(f"OSM fetch failed: {e}")
-            return self._add_empty_highway_columns(gdf_highways)
-        
+            return self.add_empty_highway_column(df)
+
+        finally:
+            try:
+                del osm
+            except Exception:
+                pass
+            gc.collect()
+
+        # Geometry cleaning
         try:
             gdf_highways = gdf_highways[
-                gdf_highways.geometry.notna() &
-                gdf_highways.geometry.is_valid &
-                gdf_highways.geometry.type.isin(['LineString', 'MultiLineString'])
+                gdf_highways.geometry.notna()
+                & gdf_highways.geometry.is_valid
+                & gdf_highways.geometry.type.isin(["LineString", "MultiLineString"])
             ].copy()
-        except Exception as e:
-            logger.error(f"No data: {e}")
-            return self._add_empty_highway_columns(gdf_highways)
-     
-        # Copy df and create a unique point ID for merging after join
-        df = df.copy()
-        df['_point_id'] = range(len(df))
 
-        # Build GeoDataFrame of points
+            if gdf_highways.empty:
+                raise ValueError("No valid highway geometries")
+
+        except Exception as e:
+            logger.error(f"No usable highway data: {e}")
+            return self.add_empty_highway_column(df)
+
+        # Build points
+        df["_point_id"] = range(len(df))
+
         gdf_points = gpd.GeoDataFrame(
             df,
-            geometry=gpd.points_from_xy(df.longitude_cval_ippc, df.latitude_cval_ippc),
-            crs="EPSG:4326"  # original lat/lon CRS
+            geometry=gpd.points_from_xy(
+                df.longitude_cval_ippc,
+                df.latitude_cval_ippc,
+            ),
+            crs="EPSG:4326",
         )
 
+        # Projection
         try:
-            # Reproject points and highways to projected CRS (meters) for distance calculations
-            gdf_points = gdf_points.to_crs(self.utm_codes[country])
-            gdf_highways = gdf_highways.to_crs(self.utm_codes[country])
+            target_crs = self.crs_codes[country]
+            gdf_points = gdf_points.to_crs(target_crs)
+            gdf_highways = gdf_highways.to_crs(target_crs)
+
         except Exception as e:
             logger.error(f"CRS projection failed: {e}")
-            return self._add_empty_highway_columns(df)
+            return self.add_empty_highway_column(df)
 
+        # Spatial join
         try:
-
             gdf_labeled = gpd.sjoin_nearest(
                 gdf_points,
-                gdf_highways[['geometry', 'highway']],  
-                how='left',
+                gdf_highways[["geometry", "highway"]],
+                how="left",
                 max_distance=max_distance,
-                distance_col='dist_to_highway_m'
+                distance_col="dist_to_highway_m",
             )
 
-            # Assign highway priority and keep the closest/highest priority highway per point
-            gdf_labeled['highway_priority'] = gdf_labeled['highway'].map(self.highway_prio).fillna(0)
-            gdf_labeled = gdf_labeled.sort_values(
-                ['_point_id', 'highway_priority', 'dist_to_highway_m'],
-                ascending=[True, False, True]
-            ).drop_duplicates(subset=['_point_id'], keep='first')
+            gdf_labeled["highway_priority"] = (
+                gdf_labeled["highway"]
+                .map(self.highway_priority)
+                .fillna(0)
+            )
+
+            gdf_labeled = (
+                gdf_labeled.sort_values(
+                    ["_point_id", "highway_priority", "dist_to_highway_m"],
+                    ascending=[True, False, True],
+                )
+                .drop_duplicates(subset=["_point_id"], keep="first")
+            )
 
         except Exception as e:
             logger.error(f"Spatial join failed: {e}")
-            return self._add_empty_highway_columns(df)
+            return self.add_empty_highway_column(df)
 
-        # Merge labeled highways back to original df
+        # Merge back
         result = df.merge(
-            gdf_labeled[['_point_id', 'highway', 'dist_to_highway_m']],
-            on='_point_id',
-            how='left'
+            gdf_labeled[["_point_id", "highway", "dist_to_highway_m"]],
+            on="_point_id",
+            how="left",
         )
-        result = result.drop(columns=['_point_id', 'dist_to_highway_m'])
-        result = result.rename(columns={'highway': 'highway_label'})
 
-        # Ensure no rows are lost
+        result = result.drop(columns=["_point_id", "dist_to_highway_m"])
+        result = result.rename(columns={"highway": "highway_label"})
+
         assert len(result) == len(df), "Row count mismatch after labeling"
 
         return result
     
-    def _online_labeling_pipeline(
+    def online_labeling_pipeline(
         self,
         bbox_buffer: float,
         max_distance: float,
         country: str,
         chunk_size: int,
         function: callable,
-        datasets: Tuple[List[Path], List[str]]
+        datasets: tuple[list[Path], list[str]]
     ) -> None:
         """Runs an online labeling function over a list of trip files.
 
@@ -1112,22 +1140,19 @@ class TruckDataHighwayLabeler:
         and then concatenated. A verification map is generated for every trip.
 
         Args:
-            bbox_buffer: Padding in decimal degrees added to each trip's bounding
+            bbox_buffer (float): Padding in decimal degrees added to each trip's bounding
                 box before the online query.
-            max_distance: Maximum snap distance in metres.
-            country: Country code forwarded to ``function`` and to the plot
+            max_distance (float): Maximum snap distance in metres.
+            country (str): Country code forwarded to ``function`` and to the plot
                 directory hierarchy.
-            chunk_size: Maximum number of rows to process in a single call to
+            chunk_size (int): Maximum number of rows to process in a single call to
                 ``function``. Larger files are split into chunks of this size.
             function: A callable with signature
                 ``(df, bbox_buffer, max_distance, country) -> pd.DataFrame``
                 that performs the actual labeling (e.g.
-                :meth:`_online_labeling_with_overpass`).
-            datasets: Tuple ``(paths, filenames)`` as returned by
-                :meth:`_get_datasets` or :meth:`_get_datasets_by_country`.
-
-        Returns:
-            None
+                :meth:`online_labeling_with_overpass`).
+            datasets (tuple[list[Path], list[str]]): Tuple ``(paths, filenames)`` as returned by
+                :meth:`get_datasets` or :meth:`get_datasets_by_country`.
         """
         paths, filenames = datasets
 
@@ -1135,7 +1160,7 @@ class TruckDataHighwayLabeler:
             
             for path, filename in zip(paths, filenames):
                 
-                output_path = Path(self.save_labels_path, f"{filename}{self.file_extension}")
+                output_path = Path(self.labeled_data_dir, f"{filename}{self.file_extension}")
                 if output_path.exists():
                     tqdm.write(f"Skipping {filename}: already processed")
                     pbar.update(1)
@@ -1155,11 +1180,11 @@ class TruckDataHighwayLabeler:
                         results.append(labeled_chunk)
                     df_labeled = pd.concat(results, ignore_index=True)
 
-            self._plot_and_verify_labels(df_labeled, filename, country)
+            self.plot_and_verify_labels(df_labeled, filename, country)
 
         return None
     
-    def _offline_labeling_pipeline(
+    def offline_labeling_pipeline(
         self,
         bbox_buffer: float,
         max_distance: float,
@@ -1167,39 +1192,36 @@ class TruckDataHighwayLabeler:
     ) -> None:
         """Runs an offline labeling function over all countries and their trip files.
 
-        Groups trips by country using :meth:`_get_datasets_by_country`, loads
+        Groups trips by country using :meth:`get_datasets_by_country`, loads
         the corresponding offline highway map once per country (or country
         combination), then applies ``function`` to each individual trip. Results
-        are written to ``save_labels_path`` and a verification map is generated.
+        are written to ``labeled_data_dir`` and a verification map is generated.
         The highway GeoDataFrame is released from memory after each country to
         limit peak RAM usage.
 
         Args:
-            bbox_buffer: Padding in decimal degrees added to the trip's bounding
+            bbox_buffer (float): Padding in decimal degrees added to the trip's bounding
                 box when clipping the highway GeoDataFrame.
-            max_distance: Maximum snap distance in metres passed to ``function``.
+            max_distance (float): Maximum snap distance in metres passed to ``function``.
             function: A callable with signature
                 ``(df, bbox_buffer, max_distance, crs, gdf_highways) -> pd.DataFrame``
                 that performs the actual labeling (e.g.
-                :meth:`_offline_labeling_with_pyogrio`).
-
-        Returns:
-            None
+                :meth:`offline_labeling_with_pyogrio`).
         """
-        datasets = self._get_datasets_by_country()
+        datasets = self.get_datasets_by_country()
         
         with tqdm(total=sum(len(filenames) for _, (_, filenames) in datasets.items()), desc="Preprocessing datasets") as pbar:
             for country, (paths, filenames) in datasets.items():
                 country = "DK,SE"
                 if "," in country:
-                    gdf_highways = self._load_multiple_offline_maps_with_pyogrio(country)
+                    gdf_highways = self.load_multiple_offline_maps_with_pyogrio(country)
                     crs = self.crs_codes["EU"]
                 else:
-                    gdf_highways = self._load_offline_map_with_pyogrio(country)
+                    gdf_highways = self.load_offline_map_with_pyogrio(country)
                     crs = self.crs_codes[country]
 
                 for path, filename in zip(paths, filenames):
-                    output_path = Path(self.save_labels_path, f"{filename}{self.file_extension}")
+                    output_path = Path(self.labeled_data_dir, f"{filename}{self.file_extension}")
                     if output_path.exists():
                         tqdm.write(f"Skipping {filename}: already processed")
                         pbar.update(1)
@@ -1208,28 +1230,27 @@ class TruckDataHighwayLabeler:
                     df = pd.read_parquet(path, columns=self.highway_labeling_signals)
                     df_labeled = function(df, bbox_buffer, max_distance, crs, gdf_highways)
                     df_labeled.to_parquet(output_path)
-                    self._plot_and_verify_labels(df_labeled, filename, country)
+                    self.plot_and_verify_labels(df_labeled, filename, country)
                     pbar.update(1)
                 
                 del gdf_highways
                 gc.collect()
                 
-    def run(self):
+    def run(self) -> None:
         """Entry point for the highway labeling pipeline.
 
-        Executes the offline labeling pipeline using
-        :meth:`_offline_labeling_with_pyogrio` as the labeling backend, logs
-        the total elapsed time, and returns.
+        Executes the labeling pipeline and logs
+        the total elapsed time.
 
-        Returns:
-            None
+        Note:
+            :meth:`offline_labeling_pipeline` can be replaced by :meth:`online_labeling_pipeline`
         """
         start_time = time.time()
         
-        self._offline_labeling_pipeline(
+        self.offline_labeling_pipeline(
             bbox_buffer=0.01,
             max_distance=200,
-            function=self._offline_labeling_with_pyogrio,
+            function=self.offline_labeling_with_pyogrio,
         )
         
         elapsed_total = time.time() - start_time

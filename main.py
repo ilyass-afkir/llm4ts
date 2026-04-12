@@ -4,8 +4,8 @@ This module provides the top-level execution logic for sequentially running
 the data understanding, data preparation, and training/evaluation pipelines.
 Pipeline execution is controlled via Hydra configuration flags.
 
-Example:
-    >>> python main.py 
+Example using hydra:
+    >>> python llm-erange/main.py +experiment/highway=100_8B
 """
 
 import logging
@@ -14,7 +14,7 @@ from omegaconf import DictConfig
 
 from src.data_understanding.pipeline import DataUnderstandingPipeline
 from src.data_preparation.pipeline import DataPreparationPipeline
-from src.training_and_evalaution.pipeline import TrainingEvaluationPipeline
+from src.training_and_evaluation.pipeline import TrainingEvaluationPipeline
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(
