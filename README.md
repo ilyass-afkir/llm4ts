@@ -55,8 +55,10 @@ python main.py --multirun +experiment/highway=500_8B,500_1B
 ```
 
 ## Code Documentation
-
-All relevant source code lives in the `src/` folder. Refer to the in-source documentation for module-level details here:
+ 
+All relevant source code lives in the `src/` folder. Refer to the in-source documentation for module-level details:
+ 
+> 📖 **[View Full Code Documentation](https://llm4ts.ilyass-afkir-023.workers.dev)**
 
 ## Model Variants
 
